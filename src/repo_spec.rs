@@ -1,6 +1,6 @@
-use anyhow::{Result, anyhow};
-use sha2::{Sha256, Digest};
 use crate::Protocol;
+use anyhow::{Result, anyhow};
+use sha2::{Digest, Sha256};
 
 /// Represents a repository specification that can be resolved to a clone URL
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,11 +24,7 @@ impl RepoSpec {
     /// - Full URL: `https://github.com/owner/repo.git` or `git@github.com:owner/repo.git`
     /// - Provider prefix: `github:owner/repo` or `gitlab:owner/repo`
     /// - Shorthand: `owner/repo` (uses default provider from config)
-    pub fn parse(
-        spec: &str,
-        default_provider: &str,
-        protocol: Option<Protocol>,
-    ) -> Result<Self> {
+    pub fn parse(spec: &str, default_provider: &str, protocol: Option<Protocol>) -> Result<Self> {
         let original = spec.to_string();
 
         // Determine if this is a full URL or shorthand
@@ -72,9 +68,8 @@ impl RepoSpec {
 
 /// Resolve provider-prefixed shorthand (e.g., github:owner/repo)
 fn resolve_provider_shorthand(spec: &str, protocol: Option<Protocol>) -> Result<String> {
-    let protocol = protocol.ok_or_else(|| {
-        anyhow!("Protocol preference not set. Please configure it first.")
-    })?;
+    let protocol = protocol
+        .ok_or_else(|| anyhow!("Protocol preference not set. Please configure it first."))?;
 
     let parts: Vec<&str> = spec.splitn(2, ':').collect();
     if parts.len() != 2 {
@@ -93,9 +88,8 @@ fn resolve_shorthand_with_provider(
     provider: &str,
     protocol: Option<Protocol>,
 ) -> Result<String> {
-    let protocol = protocol.ok_or_else(|| {
-        anyhow!("Protocol preference not set. Please configure it first.")
-    })?;
+    let protocol = protocol
+        .ok_or_else(|| anyhow!("Protocol preference not set. Please configure it first."))?;
 
     resolve_url_for_provider(provider, spec, protocol)
 }
@@ -108,7 +102,10 @@ fn resolve_url_for_provider(
 ) -> Result<String> {
     // Ensure owner_repo has the right format
     if !owner_repo.contains('/') {
-        return Err(anyhow!("Invalid repository format: '{}'. Expected 'owner/repo'", owner_repo));
+        return Err(anyhow!(
+            "Invalid repository format: '{}'. Expected 'owner/repo'",
+            owner_repo
+        ));
     }
 
     let url = match (provider.to_lowercase().as_str(), protocol) {
@@ -193,15 +190,20 @@ fn extract_repo_name(url: &str) -> Result<String> {
     // Find the last path component
     let path = if url.starts_with("git@") {
         // SSH format: git@host:owner/repo.git
-        url.split(':').nth(1).ok_or_else(|| anyhow!("Invalid SSH URL"))?
+        url.split(':')
+            .nth(1)
+            .ok_or_else(|| anyhow!("Invalid SSH URL"))?
     } else {
         // HTTPS format: https://host/owner/repo.git
-        url.split("://").nth(1)
+        url.split("://")
+            .nth(1)
             .ok_or_else(|| anyhow!("Invalid URL"))?
     };
 
     // Get the last path component
-    let name = path.split('/').last()
+    let name = path
+        .split('/')
+        .last()
         .ok_or_else(|| anyhow!("Cannot extract repository name from URL"))?;
 
     // Remove .git suffix if present
@@ -228,7 +230,8 @@ mod tests {
             "https://github.com/owner/repo.git",
             "github",
             Some(Protocol::Https),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(spec.clone_url, "https://github.com/owner/repo.git");
         assert_eq!(spec.normalized_url, "https://github.com/owner/repo.git");
@@ -242,7 +245,8 @@ mod tests {
             "git@github.com:owner/repo.git",
             "github",
             Some(Protocol::Ssh),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(spec.clone_url, "git@github.com:owner/repo.git");
         assert_eq!(spec.normalized_url, "git@github.com:owner/repo.git");
@@ -251,11 +255,7 @@ mod tests {
 
     #[test]
     fn test_parse_github_shorthand_https() {
-        let spec = RepoSpec::parse(
-            "github:owner/repo",
-            "github",
-            Some(Protocol::Https),
-        ).unwrap();
+        let spec = RepoSpec::parse("github:owner/repo", "github", Some(Protocol::Https)).unwrap();
 
         assert_eq!(spec.clone_url, "https://github.com/owner/repo.git");
         assert_eq!(spec.normalized_url, "https://github.com/owner/repo.git");
@@ -264,11 +264,7 @@ mod tests {
 
     #[test]
     fn test_parse_github_shorthand_ssh() {
-        let spec = RepoSpec::parse(
-            "github:owner/repo",
-            "github",
-            Some(Protocol::Ssh),
-        ).unwrap();
+        let spec = RepoSpec::parse("github:owner/repo", "github", Some(Protocol::Ssh)).unwrap();
 
         assert_eq!(spec.clone_url, "git@github.com:owner/repo.git");
         assert_eq!(spec.normalized_url, "git@github.com:owner/repo.git");
@@ -277,11 +273,7 @@ mod tests {
 
     #[test]
     fn test_parse_gitlab_shorthand_https() {
-        let spec = RepoSpec::parse(
-            "gitlab:owner/repo",
-            "github",
-            Some(Protocol::Https),
-        ).unwrap();
+        let spec = RepoSpec::parse("gitlab:owner/repo", "github", Some(Protocol::Https)).unwrap();
 
         assert_eq!(spec.clone_url, "https://gitlab.com/owner/repo.git");
         assert_eq!(spec.normalized_url, "https://gitlab.com/owner/repo.git");
@@ -290,11 +282,7 @@ mod tests {
 
     #[test]
     fn test_parse_gitlab_shorthand_ssh() {
-        let spec = RepoSpec::parse(
-            "gitlab:owner/repo",
-            "github",
-            Some(Protocol::Ssh),
-        ).unwrap();
+        let spec = RepoSpec::parse("gitlab:owner/repo", "github", Some(Protocol::Ssh)).unwrap();
 
         assert_eq!(spec.clone_url, "git@gitlab.com:owner/repo.git");
         assert_eq!(spec.normalized_url, "git@gitlab.com:owner/repo.git");
@@ -303,11 +291,7 @@ mod tests {
 
     #[test]
     fn test_parse_owner_repo_default_provider_https() {
-        let spec = RepoSpec::parse(
-            "owner/repo",
-            "github",
-            Some(Protocol::Https),
-        ).unwrap();
+        let spec = RepoSpec::parse("owner/repo", "github", Some(Protocol::Https)).unwrap();
 
         assert_eq!(spec.clone_url, "https://github.com/owner/repo.git");
         assert_eq!(spec.normalized_url, "https://github.com/owner/repo.git");
@@ -316,11 +300,7 @@ mod tests {
 
     #[test]
     fn test_parse_owner_repo_default_provider_ssh() {
-        let spec = RepoSpec::parse(
-            "owner/repo",
-            "github",
-            Some(Protocol::Ssh),
-        ).unwrap();
+        let spec = RepoSpec::parse("owner/repo", "github", Some(Protocol::Ssh)).unwrap();
 
         assert_eq!(spec.clone_url, "git@github.com:owner/repo.git");
         assert_eq!(spec.normalized_url, "git@github.com:owner/repo.git");
@@ -329,14 +309,15 @@ mod tests {
 
     #[test]
     fn test_parse_without_protocol_fails() {
-        let result = RepoSpec::parse(
-            "owner/repo",
-            "github",
-            None,
-        );
+        let result = RepoSpec::parse("owner/repo", "github", None);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Protocol preference not set"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Protocol preference not set")
+        );
     }
 
     #[test]
@@ -345,7 +326,8 @@ mod tests {
             "https://github.com/owner/repo",
             "github",
             Some(Protocol::Https),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(spec.normalized_url, "https://github.com/owner/repo.git");
     }
@@ -356,7 +338,8 @@ mod tests {
             "https://GitHub.com/owner/repo.git",
             "github",
             Some(Protocol::Https),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(spec.normalized_url, "https://github.com/owner/repo.git");
     }
@@ -367,13 +350,15 @@ mod tests {
             "https://github.com/owner/repo.git",
             "github",
             Some(Protocol::Https),
-        ).unwrap();
+        )
+        .unwrap();
 
         let spec2 = RepoSpec::parse(
             "https://github.com/owner/repo.git",
             "github",
             Some(Protocol::Https),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(spec1.hash, spec2.hash);
         assert_eq!(spec1.dir_name(), spec2.dir_name());
@@ -385,13 +370,15 @@ mod tests {
             "https://github.com/owner/repo1.git",
             "github",
             Some(Protocol::Https),
-        ).unwrap();
+        )
+        .unwrap();
 
         let spec2 = RepoSpec::parse(
             "https://github.com/owner/repo2.git",
             "github",
             Some(Protocol::Https),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_ne!(spec1.hash, spec2.hash);
         assert_ne!(spec1.dir_name(), spec2.dir_name());
@@ -403,13 +390,15 @@ mod tests {
             "https://github.com/owner/repo.git",
             "github",
             Some(Protocol::Https),
-        ).unwrap();
+        )
+        .unwrap();
 
         let spec2 = RepoSpec::parse(
             "git@github.com:owner/repo.git",
             "github",
             Some(Protocol::Ssh),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_ne!(spec1.normalized_url, spec2.normalized_url);
         assert_ne!(spec1.hash, spec2.hash);
@@ -421,7 +410,8 @@ mod tests {
             "https://github.com/owner/myproject.git",
             "github",
             Some(Protocol::Https),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(spec.name, "myproject");
         assert!(spec.dir_name().starts_with("myproject-"));
@@ -434,13 +424,15 @@ mod tests {
             "https://github.com/owner1/utils.git",
             "github",
             Some(Protocol::Https),
-        ).unwrap();
+        )
+        .unwrap();
 
         let spec2 = RepoSpec::parse(
             "https://github.com/owner2/utils.git",
             "github",
             Some(Protocol::Https),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(spec1.name, "utils");
         assert_eq!(spec2.name, "utils");
@@ -449,25 +441,27 @@ mod tests {
 
     #[test]
     fn test_unsupported_provider_fails() {
-        let result = RepoSpec::parse(
-            "bitbucket:owner/repo",
-            "github",
-            Some(Protocol::Https),
-        );
+        let result = RepoSpec::parse("bitbucket:owner/repo", "github", Some(Protocol::Https));
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unsupported provider"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unsupported provider")
+        );
     }
 
     #[test]
     fn test_invalid_owner_repo_format_fails() {
-        let result = RepoSpec::parse(
-            "github:invalid",
-            "github",
-            Some(Protocol::Https),
-        );
+        let result = RepoSpec::parse("github:invalid", "github", Some(Protocol::Https));
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid repository format"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid repository format")
+        );
     }
 }

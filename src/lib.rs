@@ -4,12 +4,14 @@ pub mod path;
 pub mod repo_spec;
 pub mod repos;
 pub mod validation;
+pub mod workspace;
 
 use std::path::PathBuf;
 
 pub use config::{Config, Protocol};
 pub use repo_spec::RepoSpec;
 pub use repos::RepoInfo;
+pub use workspace::{Workspace, WorkspaceStatus};
 
 /// Internal directory that contains all Forge metadata and repositories
 pub const FORGE_DIR: &str = ".forge";

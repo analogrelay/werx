@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use dialoguer::{Select, Confirm, theme::ColorfulTheme};
+use dialoguer::{Confirm, Select, theme::ColorfulTheme};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -105,8 +105,10 @@ pub fn list_repos(forge: &Forge) -> Result<Vec<RepoInfo>> {
         return Ok(Vec::new());
     }
 
-    let entries = fs::read_dir(&repos_dir)
-        .context(format!("Failed to read repos directory '{}'", repos_dir.display()))?;
+    let entries = fs::read_dir(&repos_dir).context(format!(
+        "Failed to read repos directory '{}'",
+        repos_dir.display()
+    ))?;
 
     let mut repos = Vec::new();
 

@@ -156,15 +156,15 @@
 
 ## Validation Checklist
 
-- [ ] All unit tests pass (`cargo test`)
-- [ ] All integration tests pass
-- [ ] Commands work in interactive terminals
-- [ ] Commands work in non-interactive contexts (pipes, scripts)
-- [ ] Error messages are helpful and actionable
-- [ ] Success messages provide clear feedback
-- [ ] Code follows project conventions (rustfmt, clippy)
-- [ ] No regression in existing functionality
-- [ ] Performance is acceptable (no noticeable lag in UI)
+- [x] All unit tests pass (`cargo test`)
+- [x] All integration tests pass
+- [x] Commands work in interactive terminals
+- [x] Commands work in non-interactive contexts (pipes, scripts)
+- [x] Error messages are helpful and actionable
+- [x] Success messages provide clear feedback
+- [x] Code follows project conventions (rustfmt, clippy)
+- [x] No regression in existing functionality
+- [x] Performance is acceptable (no noticeable lag in UI)
 
 ## Dependencies
 

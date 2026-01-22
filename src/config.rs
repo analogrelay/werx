@@ -107,8 +107,7 @@ impl Config {
             }
         }
 
-        let contents = toml::to_string_pretty(self)
-            .context("Failed to serialize config")?;
+        let contents = toml::to_string_pretty(self).context("Failed to serialize config")?;
 
         fs::write(path, contents)
             .context(format!("Failed to write config file '{}'", path.display()))?;

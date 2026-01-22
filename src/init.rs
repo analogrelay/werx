@@ -3,8 +3,8 @@ use dialoguer::{Select, theme::ColorfulTheme};
 use std::fs;
 use std::path::PathBuf;
 
-use crate::{Forge, Protocol};
 use crate::validation::validate_forge_path;
+use crate::{Forge, Protocol};
 
 /// Initialize a Forge at the specified path
 ///
@@ -46,7 +46,9 @@ pub fn initialize_forge(path: PathBuf, force: bool, protocol: Option<Protocol>) 
     // Create config file with protocol preference
     let mut config = crate::Config::default();
     config.set_protocol(protocol);
-    forge.save_config(&config).context("Failed to create Forge config file")?;
+    forge
+        .save_config(&config)
+        .context("Failed to create Forge config file")?;
 
     Ok(forge)
 }
