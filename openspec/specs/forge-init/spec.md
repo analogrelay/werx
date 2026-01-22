@@ -105,15 +105,28 @@ The system SHALL validate that the target path is suitable for a Forge.
 
 The system SHALL provide clear feedback when initialization succeeds.
 
-#### Scenario: Display success message with Forge location
+#### Scenario: Prompt for protocol preference during init
 
 - **WHEN** user runs `forge init` successfully
-- **THEN** a success message is displayed showing the initialized Forge location
+- **THEN** user is prompted to choose their preferred Git protocol (SSH or HTTPS)
+- **AND** choice is saved to `.forge/config`
 
-#### Scenario: Display next steps after initialization
+#### Scenario: Skip protocol prompt with flag
 
-- **WHEN** user runs `forge init` successfully
-- **THEN** helpful next steps are displayed (e.g., "Run 'forge add' to add repositories")
+- **WHEN** user runs `forge init --protocol <ssh|https>`
+- **THEN** the specified protocol is saved to config without prompting
+
+#### Scenario: Protocol preference applies to future operations
+
+- **WHEN** protocol preference is set during init
+- **THEN** it is used for all future shorthand repository URL resolutions
+- **AND** user will not be prompted again during `forge add` operations
+
+#### Scenario: Config file contains protocol preference
+
+- **WHEN** Forge is initialized
+- **THEN** `.forge/config` includes the protocol preference
+- **AND** serves as both config and marker file
 
 ### Requirement: Error Handling
 
