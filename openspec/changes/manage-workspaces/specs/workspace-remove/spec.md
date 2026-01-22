@@ -37,20 +37,35 @@ The system SHALL provide a command to remove workspaces from the Forge.
 
 ### Requirement: Workspace Identification
 
-The system SHALL identify workspaces by directory name.
+The system SHALL identify workspaces by hierarchical path or workspace name with context.
 
-#### Scenario: Remove by exact directory name
+#### Scenario: Remove by full hierarchical path
 
-- **WHEN** user runs `forge workspace remove project@main`
-- **AND** workspace exists at `<forge-root>/project@main/`
+- **WHEN** user runs `forge workspace remove project/main`
+- **AND** workspace exists at `<forge-root>/project/main/`
 - **THEN** that workspace is removed
 
-#### Scenario: Workspace name is case-sensitive
+#### Scenario: Remove by workspace name when in repository directory
 
-- **WHEN** user runs `forge workspace remove MyWorkspace`
-- **AND** workspace exists as `<forge-root>/myworkspace/`
+- **WHEN** user is in `<forge-root>/project/` or any subdirectory
+- **AND** runs `forge workspace remove main`
+- **AND** workspace exists at `<forge-root>/project/main/`
+- **THEN** that workspace is removed
+
+#### Scenario: Workspace path is case-sensitive
+
+- **WHEN** user runs `forge workspace remove MyProject/Main`
+- **AND** workspace exists as `<forge-root>/myproject/main/`
 - **THEN** command fails indicating workspace not found
 - **AND** suggests closest matches if available
+
+#### Scenario: Require full path when ambiguous
+
+- **WHEN** user runs `forge workspace remove main` from outside any workspace
+- **AND** multiple repositories have a `main` workspace
+- **THEN** command fails with error indicating ambiguous workspace name
+- **AND** lists all matching workspaces
+- **AND** suggests using full path like `repo-name/main`
 
 #### Scenario: Handle workspace not found
 
@@ -132,8 +147,15 @@ The system SHALL properly clean up git worktree metadata when removing workspace
 #### Scenario: Remove workspace directory
 
 - **WHEN** workspace is removed
-- **THEN** workspace directory at `<forge-root>/[name]/` is deleted
+- **THEN** workspace directory at `<forge-root>/[repo-name]/[workspace-name]/` is deleted
 - **AND** all files in the workspace are removed
+
+#### Scenario: Clean up empty repository directories
+
+- **WHEN** last workspace for a repository is removed
+- **AND** repository directory `<forge-root>/[repo-name]/` is empty
+- **THEN** the empty repository directory is removed
+- **AND** success message indicates cleanup was performed
 
 #### Scenario: Preserve bare repository
 

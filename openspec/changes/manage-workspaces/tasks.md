@@ -39,6 +39,15 @@
 - Add unit tests for resolution logic
 - Validate: `cargo test` passes
 
+### 4b. Implement context-aware repository detection
+- Add `detect_current_workspace(current_dir: &Path, forge: &Forge) -> Result<Option<RepoInfo>>` function
+- Check if current directory is within a workspace under Forge root
+- Query git worktree list for each repository to find matching workspace
+- Return repository info if workspace is found
+- Return None if not in a workspace
+- Add unit tests for workspace detection
+- Validate: `cargo test` passes
+
 ### 5. Implement interactive repository selector
 - Add `inquire` or `dialoguer` crate for interactive prompts (check terminal UI requirements)
 - Implement `select_repository(&Forge) -> Result<RepoInfo>` function
@@ -50,38 +59,42 @@
 - Validate: `cargo build` succeeds
 - Validate: Selector displays and filters correctly in terminal
 
-### 6. Implement workspace name generation and prompting
-- Add `generate_workspace_name(repo_name: &str, branch: &str) -> String` function
-- Format: `[repo-name]@[branch]`
+### 6. Implement workspace path generation and prompting
+- Add `generate_workspace_path(repo_name: &str, branch: &str) -> PathBuf` function
+- Format: `[repo-name]/[branch]` (hierarchical structure)
 - Add `prompt_workspace_name(default: &str) -> Result<String>` function
+- Default workspace name is branch name
 - Use interactive prompt with default suggestion
 - Support `--name` flag to skip prompt
-- Auto-use generated name in non-interactive contexts
-- Add unit tests for name generation
+- Auto-use branch name in non-interactive contexts
+- Add unit tests for path generation
 - Validate: `cargo test` passes
 
-### 7. Implement git worktree creation
+### 7. Implement git worktree creation with hierarchical structure
 - Add `create_worktree(&Forge, &RepoInfo, &str, &str) -> Result<PathBuf>` function
 - Parameters: forge, repository, workspace name, branch
-- Check for directory name conflicts
+- Create repository directory `<forge-root>/[repo-name]/` if needed
+- Check for workspace path conflicts at `<forge-root>/[repo-name]/[workspace-name]/`
 - Execute `git worktree add <path> <branch>` on bare repository
 - Handle git command failures
 - Clean up partially created directories on failure
 - Add unit tests with temporary directories
 - Validate: `cargo test` passes
 
-### 8. Add workspace create command
+### 8. Add workspace create command with context awareness
 - Add `Create` subcommand with optional `repo` and `branch` arguments
 - Add `--name` flag for custom workspace names
 - Implement `cmd_workspace_create(repo: Option<String>, branch: Option<String>, name: Option<String>)` handler
-- Call interactive selector if repo not provided (interactive only)
+- Detect current workspace and use its repository if repo not provided
+- Call interactive selector if repo not provided and not detected (interactive only)
 - Use repository's default branch if branch not specified
-- Call name prompt if name not provided (interactive only)
-- Call `create_worktree` to perform creation
-- Display success message with path and next steps
+- Call name prompt if name not provided (interactive only, default to branch name)
+- Call `create_worktree` to perform creation with hierarchical path
+- Display success message with full hierarchical path and next steps
 - Handle all error cases with helpful messages
 - Validate: `cargo build` succeeds
 - Validate: `forge workspace create` works end-to-end
+- Validate: Context detection works when running from within a workspace
 
 ### 9. Add workspace confirmation and status checking
 - Add `check_workspace_status(path: &Path) -> Result<WorkspaceStatus>` function
@@ -93,11 +106,14 @@
 - Handle non-interactive contexts
 - Validate: `cargo test` passes
 
-### 10. Implement workspace removal
-- Add `remove_workspace(&Forge, name: &str) -> Result<()>` function
-- Find workspace by name in discovered workspaces
+### 10. Implement workspace removal with hierarchical cleanup
+- Add `remove_workspace(&Forge, path: &str) -> Result<()>` function
+- Parse workspace path (support both `repo/workspace` and `workspace` with context)
+- Find workspace by path in discovered workspaces
+- Handle ambiguous workspace names (multiple repos with same workspace name)
 - Execute `git worktree remove <path>` on parent repository
 - Remove workspace directory
+- Clean up empty repository directories after removal
 - Handle orphaned metadata (directory missing but git metadata exists)
 - Prune with `git worktree prune` if needed
 - Add unit tests for removal logic
@@ -154,10 +170,11 @@
 
 - Task 2 depends on Task 1
 - Task 3 depends on Task 2
+- Task 4b depends on Task 2
 - Task 5 depends on Task 1
 - Task 6 depends on Task 1
 - Task 7 depends on Task 4
-- Task 8 depends on Tasks 4, 5, 6, 7
+- Task 8 depends on Tasks 4, 4b, 5, 6, 7
 - Task 9 depends on Task 1
 - Task 10 depends on Task 9
 - Task 11 depends on Task 10
@@ -167,5 +184,6 @@
 ## Parallel Work Opportunities
 
 - Tasks 2, 4, 5, 6 can be worked on in parallel after Task 1
+- Task 4b can be worked on in parallel with Tasks 5, 6
 - Tasks 9 and 7 can be worked on in parallel after Task 4
 - Tasks 3 and 8 can be tested independently

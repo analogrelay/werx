@@ -45,6 +45,7 @@ The system SHALL discover workspaces by querying git worktrees for each reposito
 
 - **WHEN** discovering workspaces
 - **THEN** only worktrees under `<forge-root>/` are included
+- **AND** worktrees are expected to follow `<forge-root>/[repo-name]/[workspace-name]/` structure
 - **AND** worktrees outside the Forge are excluded
 
 #### Scenario: Handle repositories with no worktrees
@@ -59,7 +60,7 @@ The system SHALL display relevant information about each workspace.
 #### Scenario: Show workspace name and location
 
 - **WHEN** workspaces are listed
-- **THEN** each workspace shows its directory name
+- **THEN** each workspace shows its hierarchical path (e.g., `repo-name/workspace-name`)
 - **AND** shows the full path relative to Forge root
 
 #### Scenario: Show associated repository

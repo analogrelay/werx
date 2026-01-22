@@ -13,7 +13,7 @@ The system SHALL provide a command to create git worktrees from Forge repositori
 #### Scenario: Create workspace with explicit repository and branch
 
 - **WHEN** user runs `forge workspace create owner/repo main`
-- **THEN** a git worktree is created at `<forge-root>/[repo-name]@main/`
+- **THEN** a git worktree is created at `<forge-root>/[repo-name]/main/`
 - **AND** the worktree is linked to the bare repository in `.forge/repos/`
 - **AND** the worktree is checked out to the `main` branch
 
@@ -32,13 +32,49 @@ The system SHALL provide a command to create git worktrees from Forge repositori
 - **WHEN** user runs `forge worktree create owner/repo main`
 - **THEN** it behaves identically to `forge workspace create owner/repo main`
 
+### Requirement: Context-Aware Repository Detection
+
+The system SHALL automatically detect the repository when running from within a workspace.
+
+#### Scenario: Detect repository from current workspace
+
+- **WHEN** user runs `forge workspace create` from within an existing workspace
+- **THEN** the system detects the repository associated with the current workspace
+- **AND** uses that repository without prompting for selection
+
+#### Scenario: Detect repository with branch argument only
+
+- **WHEN** user runs `forge workspace create feature-branch` from within a workspace
+- **THEN** the system uses the current workspace's repository
+- **AND** creates a new workspace for `feature-branch`
+
+#### Scenario: Quick worktree creation for new branch
+
+- **WHEN** user is in workspace `~/forge/my-project/main/`
+- **AND** runs `forge workspace create feature/auth`
+- **THEN** new workspace is created at `~/forge/my-project/feature/auth/`
+- **AND** uses same repository as current workspace
+
+#### Scenario: Override detected repository with explicit repo argument
+
+- **WHEN** user runs `forge workspace create other/repo main` from within a workspace
+- **THEN** the system uses `other/repo` instead of detected repository
+- **AND** creates workspace for the specified repository
+
+#### Scenario: No repository detection outside workspaces
+
+- **WHEN** user runs `forge workspace create` from outside a workspace
+- **THEN** no automatic repository detection occurs
+- **AND** repository selector is shown (if interactive)
+
 ### Requirement: Interactive Repository Selection
 
-The system SHALL provide an interactive repository selector when repository is not specified.
+The system SHALL provide an interactive repository selector when repository is not specified and cannot be detected.
 
-#### Scenario: Show repository selector when repo not specified
+#### Scenario: Show repository selector when repo not specified and not detected
 
 - **WHEN** user runs `forge workspace create` without repository argument
+- **AND** not running from within a workspace
 - **AND** terminal is interactive (isatty)
 - **THEN** an interactive selector displays available repositories
 - **AND** user can navigate with arrow keys and select with Enter
@@ -57,12 +93,13 @@ The system SHALL provide an interactive repository selector when repository is n
 - **AND** default branch is displayed if available
 - **AND** invalid repositories are excluded from the list
 
-#### Scenario: Non-interactive context requires repository argument
+#### Scenario: Non-interactive context requires repository argument or detection
 
 - **WHEN** user runs `forge workspace create` without repository argument
+- **AND** not running from within a workspace
 - **AND** terminal is non-interactive (piped, scripted)
 - **THEN** command fails with error indicating repository is required
-- **AND** error suggests using `forge workspace create <repo> [<branch>]`
+- **AND** error suggests using `forge workspace create <repo> [<branch>]` or running from within a workspace
 
 ### Requirement: Interactive Workspace Naming
 
@@ -77,15 +114,17 @@ The system SHALL prompt for workspace name with auto-generated default suggestio
 - **AND** user can accept default by pressing Enter
 - **AND** user can type custom name to override
 
-#### Scenario: Default name generation for main branch
+#### Scenario: Default name is branch name
 
 - **WHEN** creating workspace for repository `github.com/owner/repo` on `main` branch
-- **THEN** suggested default name is `repo@main`
+- **THEN** suggested default name is `main`
+- **AND** workspace will be created at `<forge-root>/repo/main/`
 
-#### Scenario: Default name generation for feature branch
+#### Scenario: Default name for feature branch
 
 - **WHEN** creating workspace for repository `github.com/owner/my-project` on `feature/auth`
-- **THEN** suggested default name is `my-project@feature/auth`
+- **THEN** suggested default name is `feature/auth`
+- **AND** workspace will be created at `<forge-root>/my-project/feature/auth/`
 
 #### Scenario: Override name with flag in interactive mode
 
@@ -93,11 +132,12 @@ The system SHALL prompt for workspace name with auto-generated default suggestio
 - **THEN** no interactive prompt is shown
 - **AND** workspace is created with name `custom-workspace`
 
-#### Scenario: Non-interactive context requires name flag
+#### Scenario: Non-interactive context uses default name
 
 - **WHEN** user runs `forge workspace create owner/repo main` in non-interactive context
 - **AND** `--name` flag is not provided
-- **THEN** workspace is created with auto-generated name `[repo-name]@[branch]`
+- **THEN** workspace is created with default name equal to branch name
+- **AND** workspace is created at `<forge-root>/[repo-name]/main/`
 
 ### Requirement: Branch Selection
 
@@ -125,38 +165,58 @@ The system SHALL support creating workspaces for specific branches.
 - **THEN** command fails with error indicating branch does not exist
 - **AND** lists available branches
 
-### Requirement: Workspace Storage Location
+### Requirement: Hierarchical Workspace Storage
 
-The system SHALL create workspaces at the Forge root level.
+The system SHALL create workspaces in a hierarchical structure grouped by repository.
 
-#### Scenario: Workspace created at forge root
+#### Scenario: Workspace created in repository directory
 
-- **WHEN** workspace is created with name `my-workspace`
-- **THEN** directory is created at `<forge-root>/my-workspace/`
+- **WHEN** workspace is created for repository `my-repo` with name `my-workspace`
+- **THEN** directory is created at `<forge-root>/my-repo/my-workspace/`
 - **AND** directory contains working tree files
 - **AND** git metadata points to bare repository in `.forge/repos/`
 
-#### Scenario: Workspace name becomes directory name
+#### Scenario: Repository directory created if needed
 
-- **WHEN** user specifies workspace name `project-v2`
-- **THEN** workspace directory is `<forge-root>/project-v2/`
+- **WHEN** creating first workspace for a repository
+- **THEN** repository directory `<forge-root>/[repo-name]/` is created
+- **AND** workspace is created within that directory
+
+#### Scenario: Multiple workspaces share repository directory
+
+- **WHEN** creating multiple workspaces for same repository
+- **THEN** all workspaces are created under `<forge-root>/[repo-name]/`
+- **AND** each workspace has its own subdirectory
+
+#### Scenario: Workspace path includes repository and workspace name
+
+- **WHEN** user creates workspace named `feature` for repository `project`
+- **THEN** workspace directory is `<forge-root>/project/feature/`
 
 ### Requirement: Duplicate Workspace Prevention
 
 The system SHALL prevent creating workspaces with names that conflict with existing directories.
 
-#### Scenario: Reject workspace with existing directory name
+#### Scenario: Reject workspace with existing workspace name
 
-- **WHEN** user attempts to create workspace named `existing-dir`
-- **AND** directory `<forge-root>/existing-dir/` already exists
+- **WHEN** user attempts to create workspace named `main` for repository `my-repo`
+- **AND** directory `<forge-root>/my-repo/main/` already exists
+- **THEN** command fails with error indicating workspace already exists
+- **AND** suggests choosing a different name
+
+#### Scenario: Allow same workspace name across different repositories
+
+- **WHEN** user creates workspace named `main` for repository `repo-a`
+- **AND** later creates workspace named `main` for repository `repo-b`
+- **THEN** both workspaces are created successfully
+- **AND** exist as `<forge-root>/repo-a/main/` and `<forge-root>/repo-b/main/`
+
+#### Scenario: Detect conflict with repository directory
+
+- **WHEN** user attempts to create workspace with name matching an existing repository directory
+- **AND** that repository directory contains other workspaces
 - **THEN** command fails with error indicating name conflict
-- **AND** suggests choosing a different name
-
-#### Scenario: Detect conflict with .forge directory
-
-- **WHEN** user attempts to create workspace named `.forge`
-- **THEN** command fails with error indicating reserved name
-- **AND** suggests choosing a different name
+- **AND** explains the hierarchical structure
 
 ### Requirement: Repository Resolution
 
