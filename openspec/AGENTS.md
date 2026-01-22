@@ -7,20 +7,14 @@ Instructions for AI coding assistants using OpenSpec for spec-driven development
 - Search existing work: `openspec spec list --long`, `openspec list` (use `rg` only for full-text search)
 - Decide scope: new capability vs modify existing capability
 - Pick a unique `change-id`: kebab-case, verb-led (`add-`, `update-`, `remove-`, `refactor-`)
-- **CREATE BRANCH IMMEDIATELY**: `git checkout -b openspec/<change-id>`
 - Scaffold: `proposal.md`, `tasks.md`, `design.md` (only if needed), and delta specs per affected capability
 - Write deltas: use `## ADDED|MODIFIED|REMOVED|RENAMED Requirements`; include at least one `#### Scenario:` per requirement
 - Validate: `openspec validate [change-id] --strict --no-interactive` and fix issues
 - Request approval: Do not start implementation until proposal is approved
-- **After approval**: Create beads via `@.github/prompts/spec-complete.prompt.md`
-- **Push to remote**: `bd sync && git push -u origin openspec/<change-id>`
 
 ## Three-Stage Workflow
 
-### Stage 1: Creating Changes (Spec Workflow)
-
-**CRITICAL: Work on `openspec/<change-id>` branch from the start.**
-
+### Stage 1: Creating Changes
 Create proposal when you need to:
 - Add features or functionality
 - Make breaking changes (API, schema)
@@ -48,39 +42,21 @@ Skip proposal for:
 
 **Workflow**
 1. Review `openspec/project.md`, `openspec list`, and `openspec list --specs` to understand current context.
-2. Choose a unique verb-led `change-id`
-3. **CREATE BRANCH IMMEDIATELY**: `git checkout -b openspec/<change-id>`
-4. Scaffold `proposal.md`, `tasks.md`, optional `design.md`, and spec deltas under `openspec/changes/<id>/`.
-5. Draft spec deltas using `## ADDED|MODIFIED|REMOVED Requirements` with at least one `#### Scenario:` per requirement.
-6. Run `openspec validate <id> --strict --no-interactive` and resolve any issues before sharing the proposal.
-7. Iterate with user on the spec content (on the same branch)
-8. After approval, use `@.github/prompts/spec-complete.prompt.md` to create implementation beads
-9. Commit everything and push: `bd sync && git push -u origin openspec/<change-id>`
-10. Report branch name to user for review
+2. Choose a unique verb-led `change-id` and scaffold `proposal.md`, `tasks.md`, optional `design.md`, and spec deltas under `openspec/changes/<id>/`.
+3. Draft spec deltas using `## ADDED|MODIFIED|REMOVED Requirements` with at least one `#### Scenario:` per requirement.
+4. Run `openspec validate <id> --strict --no-interactive` and resolve any issues before sharing the proposal.
 
-**See `@.github/prompts/spec.prompt.md` for detailed steps.**
-
-### Stage 2: Implementing Changes (Work Workflow)
-
-**CRITICAL: Work on `bd/<bead-id>` branch during implementation.**
-
+### Stage 2: Implementing Changes
 Track these steps as TODOs and complete them one by one.
-1. Use `bd ready` to find unblocked work
-2. Select a bead and **CREATE BRANCH**: `git checkout -b bd/<bead-id>`
-3. **Read proposal.md** - Understand what's being built
-4. **Read design.md** (if exists) - Review technical decisions
-5. **Read tasks.md** - Get implementation checklist
-6. **Implement tasks sequentially** - Complete in order
-7. **Make commits with bead ID**: `feat: description ({{BEAD_PREFIX}}-<bead-id>)`
-8. **Update bead state** - Track progress, discoveries, blockers
-9. **Confirm completion** - Ensure every item in `tasks.md` is finished before updating statuses
-10. **Update checklist** - After all work is done, set every task to `- [x]` so the list reflects reality
-11. **Commit, sync, push**: `bd sync && git push -u origin bd/<bead-id>`
-
-**See `@.github/prompts/work.prompt.md` for detailed steps.**
+1. **Read proposal.md** - Understand what's being built
+2. **Read design.md** (if exists) - Review technical decisions
+3. **Read tasks.md** - Get implementation checklist
+4. **Implement tasks sequentially** - Complete in order
+5. **Confirm completion** - Ensure every item in `tasks.md` is finished before updating statuses
+6. **Update checklist** - After all work is done, set every task to `- [x]` so the list reflects reality
+7. **Approval gate** - Do not start implementation until the proposal is reviewed and approved
 
 ### Stage 3: Archiving Changes
-
 After deployment, create separate PR to:
 - Move `changes/[name]/` → `changes/archive/YYYY-MM-DD-[name]/`
 - Update `specs/` if capabilities changed
@@ -180,11 +156,9 @@ New request?
 
 ### Proposal Structure
 
-1. **Create branch:** `git checkout -b openspec/[change-id]` (kebab-case, verb-led, unique)
+1. **Create directory:** `changes/[change-id]/` (kebab-case, verb-led, unique)
 
-2. **Create directory:** `changes/[change-id]/`
-
-3. **Write proposal.md:**
+2. **Write proposal.md:**
 ```markdown
 # Change: [Brief description of change]
 
@@ -200,7 +174,7 @@ New request?
 - Affected code: [key files/systems]
 ```
 
-4. **Create spec deltas:** `specs/[capability]/spec.md`
+3. **Create spec deltas:** `specs/[capability]/spec.md`
 ```markdown
 ## ADDED Requirements
 ### Requirement: New Feature
@@ -221,7 +195,7 @@ The system SHALL provide...
 ```
 If multiple capabilities are affected, create multiple delta files under `changes/[change-id]/specs/<capability>/spec.md`—one per capability.
 
-5. **Create tasks.md:**
+4. **Create tasks.md:**
 ```markdown
 ## 1. Implementation
 - [ ] 1.1 Create database schema
@@ -230,7 +204,7 @@ If multiple capabilities are affected, create multiple delta files under `change
 - [ ] 1.4 Write tests
 ```
 
-6. **Create design.md when needed:**
+5. **Create design.md when needed:**
 Create `design.md` if any of the following apply; otherwise omit it:
 - Cross-cutting change (multiple services/modules) or a new architectural pattern
 - New external dependency or significant data model changes
@@ -297,7 +271,7 @@ Headers matched with `trim(header)` - whitespace ignored.
 - MODIFIED: Changes the behavior, scope, or acceptance criteria of an existing requirement. Always paste the full, updated requirement content (header + all scenarios). The archiver will replace the entire requirement with what you provide here; partial deltas will drop previous details.
 - RENAMED: Use when only the name changes. If you also change behavior, use RENAMED (name) plus MODIFIED (content) referencing the new name.
 
-Common pitfall: Using MODIFIED to add a new concern without including the previous text. This causes loss of detail at archive time. If you aren't explicitly changing the existing requirement, add a new requirement under ADDED instead.
+Common pitfall: Using MODIFIED to add a new concern without including the previous text. This causes loss of detail at archive time. If you aren’t explicitly changing the existing requirement, add a new requirement under ADDED instead.
 
 Authoring a MODIFIED requirement correctly:
 1) Locate the existing requirement in `openspec/specs/<capability>/spec.md`.
@@ -351,9 +325,8 @@ openspec list
 # rg -n "Requirement:|Scenario:" openspec/specs
 # rg -n "^#|Requirement:" openspec/changes
 
-# 2) Choose change id, create branch, and scaffold
+# 2) Choose change id and scaffold
 CHANGE=add-two-factor-auth
-git checkout -b openspec/$CHANGE
 mkdir -p openspec/changes/$CHANGE/{specs/auth}
 printf "## Why\n...\n\n## What Changes\n- ...\n\n## Impact\n- ...\n" > openspec/changes/$CHANGE/proposal.md
 printf "## 1. Implementation\n- [ ] 1.1 ...\n" > openspec/changes/$CHANGE/tasks.md
@@ -371,13 +344,6 @@ EOF
 
 # 4) Validate
 openspec validate $CHANGE --strict --no-interactive
-
-# 5) After approval, create beads (use prompt)
-# See @.github/prompts/spec-complete.prompt.md
-
-# 6) Push to remote
-bd sync
-git push -u origin openspec/$CHANGE
 ```
 
 ## Multi-Capability Example
@@ -437,6 +403,15 @@ Only add complexity with:
 - Prefer verb-led prefixes: `add-`, `update-`, `remove-`, `refactor-`
 - Ensure uniqueness; if taken, append `-2`, `-3`, etc.
 
+## Tool Selection Guide
+
+| Task | Tool | Why |
+|------|------|-----|
+| Find files by pattern | Glob | Fast pattern matching |
+| Search code content | Grep | Optimized regex search |
+| Read specific files | Read | Direct file access |
+| Explore unknown scope | Task | Multi-step investigation |
+
 ## Error Recovery
 
 ### Change Conflicts
@@ -470,10 +445,6 @@ Only add complexity with:
 - `design.md` - Technical decisions
 - `spec.md` - Requirements and behavior
 
-### Branch Naming
-- Spec workflow: `openspec/<change-id>`
-- Work workflow: `bd/<bead-id>`
-
 ### CLI Essentials
 ```bash
 openspec list              # What's in progress?
@@ -482,4 +453,4 @@ openspec validate --strict --no-interactive  # Is it correct?
 openspec archive <change-id> [--yes|-y]  # Mark complete (add --yes for automation)
 ```
 
-Remember: Specs are truth. Changes are proposals. Always work on the correct branch. Keep them in sync.
+Remember: Specs are truth. Changes are proposals. Keep them in sync.
