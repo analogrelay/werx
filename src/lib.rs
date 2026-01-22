@@ -1,8 +1,15 @@
+pub mod config;
 pub mod init;
 pub mod path;
+pub mod repo_spec;
+pub mod repos;
 pub mod validation;
 
 use std::path::PathBuf;
+
+pub use config::{Config, Protocol};
+pub use repo_spec::RepoSpec;
+pub use repos::RepoInfo;
 
 /// Internal directory that contains all Forge metadata and repositories
 pub const FORGE_DIR: &str = ".forge";
@@ -10,8 +17,8 @@ pub const FORGE_DIR: &str = ".forge";
 /// Subdirectory within .forge/ for storing repository clones
 pub const REPOS_SUBDIR: &str = "repos";
 
-/// Marker file within .forge/ that indicates a directory is a Forge
-pub const FORGE_MARKER: &str = "marker";
+/// Configuration file within .forge/ that stores settings and acts as Forge marker
+pub const FORGE_CONFIG: &str = "config.toml";
 
 /// Result type for Forge operations
 pub type Result<T> = anyhow::Result<T>;
@@ -26,8 +33,8 @@ impl Forge {
     /// Check if a directory is a Forge
     pub fn exists_at(path: &std::path::Path) -> bool {
         let forge_dir = path.join(FORGE_DIR);
-        let marker = forge_dir.join(FORGE_MARKER);
-        forge_dir.exists() && marker.exists()
+        let config = forge_dir.join(FORGE_CONFIG);
+        forge_dir.exists() && config.exists()
     }
 
     /// Get the .forge directory
@@ -40,8 +47,18 @@ impl Forge {
         self.forge_dir().join(REPOS_SUBDIR)
     }
 
-    /// Get the marker file path (inside .forge/)
-    pub fn marker_file(&self) -> PathBuf {
-        self.forge_dir().join(FORGE_MARKER)
+    /// Get the config file path (inside .forge/)
+    pub fn config_file(&self) -> PathBuf {
+        self.forge_dir().join(FORGE_CONFIG)
+    }
+
+    /// Load the Forge configuration
+    pub fn load_config(&self) -> Result<Config> {
+        Config::load(&self.config_file())
+    }
+
+    /// Save the Forge configuration
+    pub fn save_config(&self, config: &Config) -> Result<()> {
+        config.save(&self.config_file())
     }
 }

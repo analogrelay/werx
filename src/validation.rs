@@ -137,8 +137,9 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let forge_dir = temp.path().join(".forge");
         fs::create_dir(&forge_dir).unwrap();
-        let marker = forge_dir.join("marker");
-        fs::write(&marker, b"").unwrap();
+        let config = forge_dir.join("config.toml");
+        let cfg = crate::Config::default();
+        cfg.save(&config).unwrap();
 
         let result = validate_forge_path(&temp.path().to_path_buf(), false);
         assert!(result.is_err());
@@ -150,8 +151,9 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let forge_dir = temp.path().join(".forge");
         fs::create_dir(&forge_dir).unwrap();
-        let marker = forge_dir.join("marker");
-        fs::write(&marker, b"").unwrap();
+        let config = forge_dir.join("config.toml");
+        let cfg = crate::Config::default();
+        cfg.save(&config).unwrap();
 
         let result = validate_forge_path(&temp.path().to_path_buf(), true);
         assert!(result.is_ok());
