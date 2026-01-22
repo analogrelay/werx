@@ -2,7 +2,7 @@
 
 ## Why
 
-Users need a way to initialize their Forge - a centralized root directory that will hold all their source code repositories and workspaces. This is the foundational command that sets up the Forge structure and configuration, enabling all other Forge operations.
+Users need a way to initialize their Forge - a centralized root directory that will hold all their workspaces. Workspaces live at the root level for easy access, while repositories and internal data are stored in a hidden `.forge/` directory. This is the foundational command that sets up the Forge structure and configuration, enabling all other Forge operations.
 
 ## What Changes
 

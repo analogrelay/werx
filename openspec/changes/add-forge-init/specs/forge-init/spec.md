@@ -57,8 +57,15 @@ The system SHALL create the necessary directory structure when initializing a Fo
 
 - **WHEN** user runs `forge init`
 - **THEN** the following directories are created:
-  - `<forge-root>/repos` for repositories
-  - `<forge-root>/workspaces` for workspaces
+  - `<forge-root>/.forge/` for internal data (marker file, repositories, configuration)
+  - `<forge-root>/.forge/repos/` for storing repository clones
+  - Workspaces are created as non-hidden directories directly in `<forge-root>/`
+
+#### Scenario: Workspaces live at root level
+
+- **WHEN** user runs `forge init`
+- **THEN** the Forge root (`<forge-root>/`) is available for workspace directories
+- **AND** all internal Forge data is stored in `<forge-root>/.forge/`
 
 ### Requirement: Existing Forge Detection
 
