@@ -1,6 +1,6 @@
 # Spec Delta: repo-url-resolution
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Owner Extraction from Clone URL
 
@@ -112,6 +112,8 @@ The system SHALL generate 6-character hexadecimal hashes for repository disambig
 
 - **WHEN** two different repository URLs are resolved
 - **THEN** they produce different 6-character hashes
+
+## MODIFIED Requirements
 
 ### Requirement: Multiple URL Limitation
 
