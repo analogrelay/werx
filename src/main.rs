@@ -3,10 +3,10 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 use forge::Forge;
+use forge::directive::emit_change_directory;
 use forge::init::initialize_forge;
 use forge::path::resolve_forge_path;
 use forge::repos::{add_repo, list_repos, remove_repo};
-use forge::directive::emit_change_directory;
 use forge::shell::cmd_shell_init;
 use forge::workspace::{
     check_workspace_status, confirm_workspace_removal, create_worktree, detect_current_workspace,
@@ -55,12 +55,13 @@ enum Commands {
     Repos(ReposCommands),
 
     /// Manage workspaces in the Forge
-    #[command(about = "Manage workspaces in the Forge", subcommand)]
-    Workspace(WorkspaceCommands),
-
-    /// Manage workspaces in the Forge (alias for 'workspace')
-    #[command(about = "Manage workspaces in the Forge", subcommand, alias = "wt")]
-    Workspaces(WorkspaceCommands),
+    #[command(
+        about = "Manage workspaces in the Forge",
+        subcommand,
+        alias = "wt",
+        alias = "workspaces"
+    )]
+    Work(WorkspaceCommands),
 
     /// Navigate to a workspace using fuzzy search
     #[command(
@@ -227,7 +228,7 @@ fn main() -> Result<()> {
                 cmd_remove(repo, force)?;
             }
         },
-        Commands::Workspace(subcmd) | Commands::Workspaces(subcmd) => match subcmd {
+        Commands::Work(subcmd) => match subcmd {
             WorkspaceCommands::Create { repo, branch, name } => {
                 cmd_workspace_create(repo, branch, name)?;
             }
@@ -288,7 +289,10 @@ fn cmd_init(cli_path: Option<PathBuf>, force: bool, protocol_str: Option<String>
         if shell_name == "bash" || shell_name == "zsh" {
             println!();
             println!("Shell integration (optional):");
-            println!("  • Enable navigation with 'forge go' by adding to your .{}rc:", shell_name);
+            println!(
+                "  • Enable navigation with 'forge go' by adding to your .{}rc:",
+                shell_name
+            );
             println!("    eval \"$(forge shell init {})\"", shell_name);
         }
     }
