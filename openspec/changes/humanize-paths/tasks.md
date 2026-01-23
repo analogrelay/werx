@@ -1,5 +1,17 @@
 # Implementation Tasks: Humanize Repository and Workspace Paths
 
+## Progress Checklist
+
+- [x] Task 1: Add owner extraction to RepoSpec
+- [x] Task 2: Shorten hash length from 12 to 6 characters
+- [x] Task 3: Implement progressive qualification in dir_name()
+- [x] Task 4: Update add_repo to use conflict-aware directory naming
+- [x] Task 5: Update workspace path generation
+- [x] Task 6: Update all affected call sites
+- [x] Task 7: Update repository listing and removal
+- [x] Task 8: Update integration tests
+- [x] Task 9: Update spec deltas with implementation notes
+
 ## Task 1: Add owner extraction to RepoSpec
 
 **Description**: Extend `RepoSpec` struct and implement owner extraction from clone URLs.
