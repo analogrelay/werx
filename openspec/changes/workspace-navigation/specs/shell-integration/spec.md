@@ -30,12 +30,22 @@ The system SHALL provide a `forge shell` command to output shell integration cod
 - **AND** error lists supported shells
 - **AND** command exits with non-zero code
 
-#### Scenario: Shell init with no shell specified
+#### Scenario: Shell init with auto-detection
 
 - **WHEN** user runs `forge shell init` with no shell argument
+- **THEN** command detects shell from environment variables
+- **AND** bash integration code is output if BASH environment detected
+- **AND** zsh integration code is output if ZSH environment detected
+- **AND** command succeeds with detected shell
+
+#### Scenario: Shell init with no shell and detection fails
+
+- **WHEN** user runs `forge shell init` with no shell argument
+- **AND** shell cannot be detected from environment variables
 - **THEN** command fails with error
-- **AND** error indicates shell name required
+- **AND** error indicates shell could not be detected
 - **AND** error lists supported shells
+- **AND** command exits with non-zero code
 
 ### Requirement: Shell Wrapper Function
 
