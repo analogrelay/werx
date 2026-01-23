@@ -6,9 +6,12 @@ use forge::Forge;
 use forge::init::initialize_forge;
 use forge::path::resolve_forge_path;
 use forge::repos::{add_repo, list_repos, remove_repo};
+use forge::directive::emit_change_directory;
+use forge::shell::cmd_shell_init;
 use forge::workspace::{
     check_workspace_status, confirm_workspace_removal, create_worktree, detect_current_workspace,
     find_repository, list_workspaces, prompt_workspace_name, remove_workspace, select_repository,
+    select_workspace_with_query,
 };
 
 /// Forge - Manage your code repositories and workspaces
@@ -58,6 +61,51 @@ enum Commands {
     /// Manage workspaces in the Forge (alias for 'workspace')
     #[command(about = "Manage workspaces in the Forge", subcommand, alias = "wt")]
     Workspaces(WorkspaceCommands),
+
+    /// Navigate to a workspace using fuzzy search
+    #[command(
+        about = "Navigate to a workspace using fuzzy search",
+        long_about = "Navigate to a workspace using fuzzy search.\n\n\
+                      Examples:\n  \
+                      forge go              # Launch interactive fuzzy search\n  \
+                      forge go feature      # Pre-fill search with 'feature'\n  \
+                      forge go repo/main    # Direct navigation if exact match\n\n\
+                      Note: Requires shell integration. Run 'forge shell init --help' for setup."
+    )]
+    Go {
+        /// Optional query to pre-fill or match workspaces
+        #[arg(value_name = "QUERY")]
+        query: Option<String>,
+    },
+
+    /// Shell integration commands
+    #[command(
+        about = "Shell integration commands",
+        long_about = "Shell integration commands for enabling directory navigation.\n\n\
+                      To enable 'forge go' to change your shell's directory, add to your shell config:\n\n  \
+                      Bash: eval \"$(forge shell init bash)\"  (add to ~/.bashrc)\n  \
+                      Zsh:  eval \"$(forge shell init zsh)\"   (add to ~/.zshrc)",
+        subcommand
+    )]
+    Shell(ShellCommands),
+}
+
+#[derive(Subcommand)]
+enum ShellCommands {
+    /// Output shell initialization code
+    #[command(
+        about = "Output shell initialization code for the specified shell",
+        long_about = "Output shell initialization code for the specified shell.\n\n\
+                      Supported shells: bash, zsh\n\n\
+                      Examples:\n  \
+                      eval \"$(forge shell init bash)\"  # Add to ~/.bashrc\n  \
+                      eval \"$(forge shell init zsh)\"   # Add to ~/.zshrc"
+    )]
+    Init {
+        /// Shell type (bash or zsh)
+        #[arg(value_name = "SHELL")]
+        shell: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -128,6 +176,22 @@ enum WorkspaceCommands {
         #[arg(short, long)]
         force: bool,
     },
+
+    /// Navigate to a workspace using fuzzy search (alias for 'forge go')
+    #[command(
+        about = "Navigate to a workspace using fuzzy search (alias for 'forge go')",
+        long_about = "Navigate to a workspace using fuzzy search.\n\n\
+                      This is an alias for 'forge go' that works from the workspace subcommand.\n\n\
+                      Examples:\n  \
+                      forge workspace go              # Launch interactive fuzzy search\n  \
+                      forge workspace go feature      # Pre-fill search with 'feature'\n\n\
+                      Note: Requires shell integration. Run 'forge shell init --help' for setup."
+    )]
+    Go {
+        /// Optional query to pre-fill or match workspaces
+        #[arg(value_name = "QUERY")]
+        query: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -144,6 +208,14 @@ fn main() -> Result<()> {
         Commands::Add { repo } => {
             cmd_add(repo)?;
         }
+        Commands::Go { query } => {
+            cmd_go(query)?;
+        }
+        Commands::Shell(subcmd) => match subcmd {
+            ShellCommands::Init { shell } => {
+                cmd_shell_init(&shell)?;
+            }
+        },
         Commands::Repos(subcmd) => match subcmd {
             ReposCommands::Add { repo } => {
                 cmd_add(repo)?;
@@ -164,6 +236,9 @@ fn main() -> Result<()> {
             }
             WorkspaceCommands::Remove { workspace, force } => {
                 cmd_workspace_remove(workspace, force)?;
+            }
+            WorkspaceCommands::Go { query } => {
+                cmd_go(query)?;
             }
         },
     }
@@ -202,6 +277,22 @@ fn cmd_init(cli_path: Option<PathBuf>, force: bool, protocol_str: Option<String>
     println!("Next steps:");
     println!("  • Run 'forge add <repo-url>' to add a repository");
     println!("  • Run 'forge repos list' to see your repositories");
+
+    // Suggest shell integration based on user's shell
+    if let Ok(shell_var) = std::env::var("SHELL") {
+        let shell_name = std::path::Path::new(&shell_var)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+
+        if shell_name == "bash" || shell_name == "zsh" {
+            println!();
+            println!("Shell integration (optional):");
+            println!("  • Enable navigation with 'forge go' by adding to your .{}rc:", shell_name);
+            println!("    eval \"$(forge shell init {})\"", shell_name);
+        }
+    }
+
     println!();
 
     Ok(())
@@ -473,6 +564,35 @@ fn cmd_workspace_remove(workspace: String, force: bool) -> Result<()> {
     println!();
     println!("  Workspace: {}/{}", ws.repository, ws.name);
     println!();
+
+    Ok(())
+}
+
+fn cmd_go(query: Option<String>) -> Result<()> {
+    // Find the Forge
+    let forge = find_forge()?;
+
+    // List all workspaces
+    let workspaces = list_workspaces(&forge)?;
+
+    if workspaces.is_empty() {
+        println!("No workspaces found.");
+        println!();
+        println!("Run 'forge workspace create' to create a workspace.");
+        return Ok(());
+    }
+
+    // Select workspace with optional query
+    match select_workspace_with_query(workspaces, query)? {
+        Some(workspace) => {
+            // Emit change_directory directive
+            emit_change_directory(&workspace.path);
+        }
+        None => {
+            // User cancelled or no selection
+            // Just exit without error
+        }
+    }
 
     Ok(())
 }

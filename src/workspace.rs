@@ -1,10 +1,14 @@
 use anyhow::{Context, Result, anyhow};
 use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use serde::Serialize;
+use skim::prelude::*;
 use std::fs;
-use std::io::IsTerminal;
+use std::io::{Cursor, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 
 use crate::{Forge, RepoInfo, RepoSpec, repos};
 
@@ -577,6 +581,162 @@ pub fn remove_workspace(forge: &Forge, workspace_path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Wrapper for displaying workspace items in fuzzy finder
+struct WorkspaceItem {
+    #[allow(dead_code)]
+    workspace: Workspace,
+    display: String,
+    preview: String,
+}
+
+impl SkimItem for WorkspaceItem {
+    fn text(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.display)
+    }
+
+    fn preview(&self, _context: PreviewContext) -> ItemPreview {
+        ItemPreview::Text(self.preview.clone())
+    }
+}
+
+/// Select a workspace using fuzzy search
+pub fn fuzzy_select_workspace(
+    workspaces: Vec<Workspace>,
+    initial_query: Option<String>,
+) -> Result<Option<Workspace>> {
+    if workspaces.is_empty() {
+        return Ok(None);
+    }
+
+    // Check if we're in an interactive terminal
+    if !std::io::stdin().is_terminal() {
+        return Err(anyhow!(
+            "Interactive terminal required for fuzzy search.\n\
+             Use a direct query match or run in an interactive terminal."
+        ));
+    }
+
+    // Build skim items
+    let items: Vec<Arc<dyn SkimItem>> = workspaces
+        .iter()
+        .map(|ws| {
+            let display = format!("{}/{}", ws.repository, ws.name);
+            let branch_str = ws
+                .branch
+                .as_deref()
+                .unwrap_or("(detached)");
+            let preview = format!("branch: {} | {}", branch_str, ws.path.display());
+
+            Arc::new(WorkspaceItem {
+                workspace: ws.clone(),
+                display,
+                preview,
+            }) as Arc<dyn SkimItem>
+        })
+        .collect();
+
+    // Create a string containing all items for skim to read
+    let item_reader = SkimItemReader::default();
+    let items_str = items
+        .iter()
+        .map(|item| item.text().to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let item_stream = Cursor::new(items_str);
+    let rx_item = item_reader.of_bufread(item_stream);
+
+    // Configure skim options
+    let options = SkimOptionsBuilder::default()
+        .height(Some("50%"))
+        .multi(false)
+        .query(initial_query.as_deref())
+        .prompt(Some("Select workspace: "))
+        .build()
+        .map_err(|e| anyhow!("Failed to build fuzzy finder options: {}", e))?;
+
+    // Run skim
+    let output = Skim::run_with(&options, Some(rx_item))
+        .ok_or_else(|| anyhow!("Fuzzy finder failed to run"))?;
+
+    // Handle user cancellation
+    if output.is_abort {
+        return Ok(None);
+    }
+
+    // Get the selected item
+    if let Some(selected) = output.selected_items.first() {
+        let selected_text = selected.text();
+
+        // Find the matching workspace
+        for ws in workspaces {
+            let display = format!("{}/{}", ws.repository, ws.name);
+            if display == selected_text.as_ref() {
+                return Ok(Some(ws));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+/// Find workspaces that match a given query using fuzzy matching
+pub fn find_workspace_matches<'a>(
+    workspaces: &'a [Workspace],
+    query: &str,
+) -> Vec<&'a Workspace> {
+    if query.is_empty() {
+        return workspaces.iter().collect();
+    }
+
+    let matcher = SkimMatcherV2::default();
+    let query_lower = query.to_lowercase();
+
+    workspaces
+        .iter()
+        .filter(|ws| {
+            let display = format!("{}/{}", ws.repository, ws.name).to_lowercase();
+            // Use fuzzy matching, but also support substring matching
+            matcher.fuzzy_match(&display, &query_lower).is_some()
+                || display.contains(&query_lower)
+        })
+        .collect()
+}
+
+/// Select a workspace with an optional query, using direct navigation if exactly one match
+pub fn select_workspace_with_query(
+    workspaces: Vec<Workspace>,
+    query: Option<String>,
+) -> Result<Option<Workspace>> {
+    if workspaces.is_empty() {
+        return Ok(None);
+    }
+
+    // If a query is provided, try to find matches
+    if let Some(ref q) = query {
+        if !q.is_empty() {
+            let matches = find_workspace_matches(&workspaces, q);
+
+            // If exactly one match, return it directly (no interactive selection)
+            if matches.len() == 1 {
+                return Ok(Some(matches[0].clone()));
+            }
+
+            // If no matches, return an error
+            if matches.is_empty() {
+                return Err(anyhow!(
+                    "No workspaces match query: '{}'",
+                    q
+                ));
+            }
+
+            // Multiple matches - fall through to fuzzy search with pre-filled query
+        }
+    }
+
+    // Launch interactive fuzzy search (with query pre-filled if provided)
+    fuzzy_select_workspace(workspaces, query)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -726,5 +886,85 @@ branch refs/heads/other
             path,
             PathBuf::from("/home/user/forge/myrepo-abc123/nested/workspace")
         );
+    }
+
+    #[test]
+    fn test_find_workspace_matches_single() {
+        let workspaces = vec![
+            Workspace {
+                name: "main".to_string(),
+                path: PathBuf::from("/tmp/forge/myrepo/main"),
+                repository: "myrepo".to_string(),
+                branch: Some("main".to_string()),
+                status: WorkspaceStatus::Clean,
+            },
+            Workspace {
+                name: "feature-x".to_string(),
+                path: PathBuf::from("/tmp/forge/myrepo/feature-x"),
+                repository: "myrepo".to_string(),
+                branch: Some("feature-x".to_string()),
+                status: WorkspaceStatus::Clean,
+            },
+        ];
+
+        let matches = find_workspace_matches(&workspaces, "main");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].name, "main");
+    }
+
+    #[test]
+    fn test_find_workspace_matches_multiple() {
+        let workspaces = vec![
+            Workspace {
+                name: "feature-a".to_string(),
+                path: PathBuf::from("/tmp/forge/myrepo/feature-a"),
+                repository: "myrepo".to_string(),
+                branch: Some("feature-a".to_string()),
+                status: WorkspaceStatus::Clean,
+            },
+            Workspace {
+                name: "feature-b".to_string(),
+                path: PathBuf::from("/tmp/forge/myrepo/feature-b"),
+                repository: "myrepo".to_string(),
+                branch: Some("feature-b".to_string()),
+                status: WorkspaceStatus::Clean,
+            },
+        ];
+
+        let matches = find_workspace_matches(&workspaces, "feature");
+        assert_eq!(matches.len(), 2);
+    }
+
+    #[test]
+    fn test_find_workspace_matches_none() {
+        let workspaces = vec![
+            Workspace {
+                name: "main".to_string(),
+                path: PathBuf::from("/tmp/forge/myrepo/main"),
+                repository: "myrepo".to_string(),
+                branch: Some("main".to_string()),
+                status: WorkspaceStatus::Clean,
+            },
+        ];
+
+        let matches = find_workspace_matches(&workspaces, "nonexistent");
+        assert_eq!(matches.len(), 0);
+    }
+
+    #[test]
+    fn test_find_workspace_matches_case_insensitive() {
+        let workspaces = vec![
+            Workspace {
+                name: "main".to_string(),
+                path: PathBuf::from("/tmp/forge/MyRepo/main"),
+                repository: "MyRepo".to_string(),
+                branch: Some("main".to_string()),
+                status: WorkspaceStatus::Clean,
+            },
+        ];
+
+        let matches = find_workspace_matches(&workspaces, "myrepo");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].repository, "MyRepo");
     }
 }

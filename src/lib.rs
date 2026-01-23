@@ -1,8 +1,10 @@
 pub mod config;
+pub mod directive;
 pub mod init;
 pub mod path;
 pub mod repo_spec;
 pub mod repos;
+pub mod shell;
 pub mod validation;
 pub mod workspace;
 

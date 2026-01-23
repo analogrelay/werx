@@ -91,6 +91,87 @@ When you initialize a Forge, the following structure is created:
 
 Workspaces are created directly in the Forge root (`~/forge/`) as regular (non-hidden) directories, making them easy to access. All internal Forge data, including repository clones, is stored in the hidden `.forge/` directory.
 
+## Navigation
+
+Forge provides a fast navigation system to jump between workspaces using fuzzy search.
+
+### Using `forge go`
+
+Navigate to any workspace with fuzzy search:
+
+```bash
+forge go
+```
+
+Pre-fill the search with a query:
+
+```bash
+forge go feature
+```
+
+Direct navigation (if query matches exactly one workspace):
+
+```bash
+forge go myrepo/main
+```
+
+**Note:** The `forge go` command requires shell integration to be set up (see below) in order to change your shell's current directory.
+
+## Shell Integration
+
+To enable directory navigation with `forge go`, you need to set up shell integration. This wraps the `forge` command with a shell function that can process directory change directives.
+
+### Setup for Bash
+
+Add this line to your `~/.bashrc`:
+
+```bash
+eval "$(forge shell init bash)"
+```
+
+Then reload your shell:
+
+```bash
+source ~/.bashrc
+```
+
+### Setup for Zsh
+
+Add this line to your `~/.zshrc`:
+
+```bash
+eval "$(forge shell init zsh)"
+```
+
+Then reload your shell:
+
+```bash
+source ~/.zshrc
+```
+
+### How It Works
+
+The shell integration works by:
+
+1. Wrapping the `forge` binary with a shell function
+2. Capturing output from the binary that includes special directives
+3. Executing shell commands (like `cd`) based on those directives
+4. Displaying normal output to the user
+
+This is similar to how tools like `direnv`, `zoxide`, and `starship` integrate with your shell.
+
+### Environment Variables
+
+- **`FORGE_BIN`**: Override the path to the forge binary (useful for testing or custom installations)
+  ```bash
+  export FORGE_BIN=/path/to/custom/forge
+  ```
+
+- **`FORGE_DIR`**: Set a custom location for your Forge (default: `~/forge`)
+  ```bash
+  export FORGE_DIR=/path/to/forge
+  ```
+
 ## Development
 
 ### Running Tests
