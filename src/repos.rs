@@ -14,6 +14,8 @@ pub struct RepoInfo {
     pub dir_name: String,
     /// The clone URL
     pub clone_url: String,
+    /// The normalized URL for deduplication
+    pub normalized_url: String,
     /// The default branch (if available)
     pub default_branch: Option<String>,
     /// Whether the repository is valid
@@ -43,16 +45,25 @@ pub fn add_repo(forge: &Forge, repo_spec: &str) -> Result<RepoSpec> {
         Err(e) => return Err(e),
     };
 
-    // Check if repository already exists
-    let repo_dir = forge.repos_dir().join(&spec.dir_name());
-    if repo_dir.exists() {
+    // Get existing repositories for conflict detection
+    let existing_repos = list_repos(forge)?;
+
+    // Determine directory name with conflict resolution
+    let dir_name = spec.dir_name(&existing_repos);
+
+    // Check if this is actually a duplicate (same normalized URL)
+    if let Some(existing) = existing_repos.iter().find(|r| r.dir_name == dir_name)
+        && existing.normalized_url == spec.normalized_url
+    {
         return Err(anyhow!(
-            "Repository already exists at: {}",
-            repo_dir.display()
+            "Repository already exists: {}\n  Location: .forge/repos/{}",
+            spec.original,
+            dir_name
         ));
     }
 
     // Clone the repository
+    let repo_dir = forge.repos_dir().join(&dir_name);
     println!("Cloning repository: {}", spec.clone_url);
     clone_bare_repo(&spec.clone_url, &repo_dir)?;
 
@@ -61,7 +72,7 @@ pub fn add_repo(forge: &Forge, repo_spec: &str) -> Result<RepoSpec> {
     println!();
     println!("  Specification: {}", spec.original);
     println!("  Clone URL:     {}", spec.clone_url);
-    println!("  Location:      .forge/repos/{}", spec.dir_name());
+    println!("  Location:      .forge/repos/{}", dir_name);
     println!();
 
     Ok(spec)
@@ -152,6 +163,7 @@ fn get_repo_info(repo_path: &Path, dir_name: String) -> RepoInfo {
             return RepoInfo {
                 dir_name,
                 clone_url: String::new(),
+                normalized_url: String::new(),
                 default_branch: None,
                 valid: false,
                 error: Some(e.to_string()),
@@ -159,12 +171,16 @@ fn get_repo_info(repo_path: &Path, dir_name: String) -> RepoInfo {
         }
     };
 
+    // Normalize the URL for comparison
+    let normalized_url = crate::repo_spec::normalize_url(&clone_url).unwrap_or_else(|_| clone_url.clone());
+
     // Try to get default branch
     let default_branch = get_default_branch(repo_path).ok();
 
     RepoInfo {
         dir_name,
         clone_url,
+        normalized_url,
         default_branch,
         valid: true,
         error: None,
@@ -229,8 +245,12 @@ pub fn remove_repo(forge: &Forge, repo_spec: &str, force: bool) -> Result<()> {
     let spec = RepoSpec::parse(repo_spec, config.default_provider(), config.protocol())
         .context("Failed to parse repository specification")?;
 
+    // Get existing repositories to determine correct directory name
+    let existing_repos = list_repos(forge)?;
+    let dir_name = spec.dir_name(&existing_repos);
+
     // Check if repository exists
-    let repo_dir = forge.repos_dir().join(&spec.dir_name());
+    let repo_dir = forge.repos_dir().join(&dir_name);
     if !repo_dir.exists() {
         return Err(anyhow!(
             "Repository not found: {}\n\nRun 'forge repos list' to see available repositories.",
@@ -244,7 +264,7 @@ pub fn remove_repo(forge: &Forge, repo_spec: &str, force: bool) -> Result<()> {
         println!("About to remove repository:");
         println!("  Specification: {}", spec.original);
         println!("  Clone URL:     {}", spec.clone_url);
-        println!("  Location:      .forge/repos/{}", spec.dir_name());
+        println!("  Location:      .forge/repos/{}", dir_name);
         println!();
 
         let confirmed = Confirm::with_theme(&ColorfulTheme::default())

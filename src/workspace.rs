@@ -201,8 +201,12 @@ pub fn find_repository(forge: &Forge, repo_spec: &str) -> Result<RepoInfo> {
     let spec = RepoSpec::parse(repo_spec, config.default_provider(), config.protocol())
         .context("Failed to parse repository specification")?;
 
+    // Get repository info to determine correct directory name
+    let repos = repos::list_repos(forge)?;
+    let dir_name = spec.dir_name(&repos);
+
     // Check if repository exists
-    let repo_dir = forge.repos_dir().join(&spec.dir_name());
+    let repo_dir = forge.repos_dir().join(&dir_name);
     if !repo_dir.exists() {
         return Err(anyhow!(
             "Repository not found: {}\n\nRun 'forge repos list' to see available repositories.",
@@ -210,11 +214,9 @@ pub fn find_repository(forge: &Forge, repo_spec: &str) -> Result<RepoInfo> {
         ));
     }
 
-    // Get repository info
-    let repos = repos::list_repos(forge)?;
     repos
         .into_iter()
-        .find(|r| r.dir_name == spec.dir_name())
+        .find(|r| r.dir_name == dir_name)
         .ok_or_else(|| anyhow!("Repository not found: {}", spec.original))
 }
 
