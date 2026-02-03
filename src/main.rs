@@ -2,7 +2,6 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use forge::Forge;
 use forge::directive::emit_change_directory;
 use forge::init::initialize_forge;
 use forge::path::resolve_forge_path;
@@ -10,9 +9,10 @@ use forge::repos::{add_repo, list_repos, remove_repo};
 use forge::shell::cmd_shell_init;
 use forge::workspace::{
     check_workspace_status, confirm_workspace_removal, create_worktree, detect_current_workspace,
-    find_repository, list_workspaces, prompt_workspace_name, remove_workspace, select_repository,
-    select_workspace_with_query,
+    find_repository, get_workspace_status_details, list_workspaces, prompt_workspace_name,
+    remove_workspace, select_repository, select_workspace_with_query, WorkspaceStatusDetails,
 };
+use forge::Forge;
 
 /// Forge - Manage your code repositories and workspaces
 #[derive(Parser)]
@@ -59,7 +59,9 @@ enum Commands {
         about = "Manage workspaces in the Forge",
         subcommand,
         alias = "wt",
-        alias = "workspaces"
+        alias = "workspaces",
+        alias = "workspace",
+        alias = "worktree"
     )]
     Work(WorkspaceCommands),
 
@@ -193,6 +195,42 @@ enum WorkspaceCommands {
         #[arg(value_name = "QUERY")]
         query: Option<String>,
     },
+
+    /// Show comprehensive workspace status
+    #[command(about = "Show workspace status across the Forge")]
+    Status {
+        /// Filter to a specific repository
+        #[arg(value_name = "REPO")]
+        repo: Option<String>,
+
+        /// Output format (text or json)
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        format: String,
+    },
+
+    /// Check workspaces for specific conditions
+    #[command(about = "Check workspaces for specific conditions")]
+    Check {
+        /// Filter to a specific repository
+        #[arg(value_name = "REPO")]
+        repo: Option<String>,
+
+        /// Check for uncommitted changes only
+        #[arg(long)]
+        uncommitted: bool,
+
+        /// Check for unpushed branches only
+        #[arg(long)]
+        unpushed: bool,
+
+        /// Check for merged branches only
+        #[arg(long)]
+        merged: bool,
+
+        /// Output format (text or json)
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        format: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -240,6 +278,18 @@ fn main() -> Result<()> {
             }
             WorkspaceCommands::Go { query } => {
                 cmd_go(query)?;
+            }
+            WorkspaceCommands::Status { repo, format } => {
+                cmd_workspace_status(repo, format)?;
+            }
+            WorkspaceCommands::Check {
+                repo,
+                uncommitted,
+                unpushed,
+                merged,
+                format,
+            } => {
+                cmd_workspace_check(repo, uncommitted, unpushed, merged, format)?;
             }
         },
     }
@@ -597,6 +647,499 @@ fn cmd_go(query: Option<String>) -> Result<()> {
             // Just exit without error
         }
     }
+
+    Ok(())
+}
+
+/// Aggregated workspace status for display
+#[derive(Debug)]
+struct WorkspaceWithStatus {
+    workspace: forge::Workspace,
+    details: WorkspaceStatusDetails,
+}
+
+/// Summary of workspace status counts
+#[derive(Debug, serde::Serialize)]
+struct StatusSummary {
+    total: usize,
+    uncommitted: usize,
+    unpushed: usize,
+    merged: usize,
+    clean: usize,
+}
+
+fn cmd_workspace_status(repo: Option<String>, format: String) -> Result<()> {
+    // Find the Forge
+    let forge = find_forge()?;
+
+    // List workspaces (optionally filtered by repository)
+    let mut workspaces = list_workspaces(&forge)?;
+
+    // Filter by repository if specified
+    if let Some(ref repo_spec) = repo {
+        let repo_info = find_repository(&forge, repo_spec)?;
+        workspaces.retain(|w| w.repository == repo_info.dir_name);
+    }
+
+    if workspaces.is_empty() {
+        if let Some(ref repo_spec) = repo {
+            println!("No workspaces found for repository '{}'.", repo_spec);
+            println!();
+            println!(
+                "Run 'forge workspace create {}' to create a workspace.",
+                repo_spec
+            );
+        } else {
+            println!("No workspaces found.");
+            println!();
+            println!("Run 'forge workspace create' to create a workspace.");
+        }
+        return Ok(());
+    }
+
+    // Gather status for all workspaces
+    let mut workspace_statuses: Vec<WorkspaceWithStatus> = Vec::new();
+    for workspace in workspaces {
+        let details = get_workspace_status_details(&workspace, &forge)?;
+        workspace_statuses.push(WorkspaceWithStatus { workspace, details });
+    }
+
+    // Calculate summary
+    let summary = StatusSummary {
+        total: workspace_statuses.len(),
+        uncommitted: workspace_statuses
+            .iter()
+            .filter(|w| w.details.uncommitted_changes)
+            .count(),
+        unpushed: workspace_statuses
+            .iter()
+            .filter(|w| w.details.unpushed_branch)
+            .count(),
+        merged: workspace_statuses
+            .iter()
+            .filter(|w| w.details.merged_branch)
+            .count(),
+        clean: workspace_statuses
+            .iter()
+            .filter(|w| {
+                !w.details.uncommitted_changes
+                    && !w.details.unpushed_branch
+                    && !w.details.merged_branch
+            })
+            .count(),
+    };
+
+    match format.as_str() {
+        "json" => {
+            print_status_json(&workspace_statuses, &summary)?;
+        }
+        _ => {
+            print_status_text(&workspace_statuses, &summary, repo.as_deref())?;
+        }
+    }
+
+    Ok(())
+}
+
+fn print_status_text(
+    statuses: &[WorkspaceWithStatus],
+    summary: &StatusSummary,
+    repo_filter: Option<&str>,
+) -> Result<()> {
+    println!();
+    if let Some(repo) = repo_filter {
+        println!("Workspace Status for '{}'", repo);
+    } else {
+        println!("Workspace Status for Forge");
+    }
+    println!();
+
+    // Uncommitted changes section
+    let uncommitted: Vec<_> = statuses
+        .iter()
+        .filter(|w| w.details.uncommitted_changes)
+        .collect();
+    if !uncommitted.is_empty() {
+        println!(
+            "Uncommitted Changes ({} workspace{}):",
+            uncommitted.len(),
+            if uncommitted.len() == 1 { "" } else { "s" }
+        );
+        for ws in &uncommitted {
+            let change_summary = if let Some(ref details) = ws.details.status_details {
+                let mut parts = Vec::new();
+                if !details.modified_files.is_empty() {
+                    parts.push(format!("M:{}", details.modified_files.len()));
+                }
+                if !details.untracked_files.is_empty() {
+                    parts.push(format!("?:{}", details.untracked_files.len()));
+                }
+                parts.join(" ")
+            } else {
+                String::new()
+            };
+            println!(
+                "  {}/{}  {}",
+                ws.workspace.repository, ws.workspace.name, change_summary
+            );
+        }
+        println!();
+    }
+
+    // Unpushed branches section
+    let unpushed: Vec<_> = statuses
+        .iter()
+        .filter(|w| w.details.unpushed_branch)
+        .collect();
+    if !unpushed.is_empty() {
+        println!(
+            "Unpushed Branches ({} workspace{}):",
+            unpushed.len(),
+            if unpushed.len() == 1 { "" } else { "s" }
+        );
+        for ws in &unpushed {
+            let branch = ws.details.branch_name.as_deref().unwrap_or("(unknown)");
+            println!(
+                "  {}/{}  Branch '{}' not on remote",
+                ws.workspace.repository, ws.workspace.name, branch
+            );
+        }
+        println!();
+    }
+
+    // Merged branches section
+    let merged: Vec<_> = statuses
+        .iter()
+        .filter(|w| w.details.merged_branch)
+        .collect();
+    if !merged.is_empty() {
+        println!(
+            "Merged Branches ({} workspace{}):",
+            merged.len(),
+            if merged.len() == 1 { "" } else { "s" }
+        );
+        for ws in &merged {
+            let branch = ws.details.branch_name.as_deref().unwrap_or("(unknown)");
+            let default = ws.details.default_branch.as_deref().unwrap_or("main");
+            println!(
+                "  {}/{}  Branch '{}' merged to '{}'",
+                ws.workspace.repository, ws.workspace.name, branch, default
+            );
+        }
+        println!();
+    }
+
+    // Clean workspaces section
+    let clean: Vec<_> = statuses
+        .iter()
+        .filter(|w| {
+            !w.details.uncommitted_changes && !w.details.unpushed_branch && !w.details.merged_branch
+        })
+        .collect();
+    if !clean.is_empty() {
+        println!(
+            "Clean Workspaces ({} workspace{}):",
+            clean.len(),
+            if clean.len() == 1 { "" } else { "s" }
+        );
+        for ws in &clean {
+            println!("  {}/{}", ws.workspace.repository, ws.workspace.name);
+        }
+        println!();
+    }
+
+    // Summary
+    println!(
+        "Summary: {} total, {} uncommitted, {} unpushed, {} merged, {} clean",
+        summary.total, summary.uncommitted, summary.unpushed, summary.merged, summary.clean
+    );
+    println!();
+
+    Ok(())
+}
+
+fn print_status_json(statuses: &[WorkspaceWithStatus], summary: &StatusSummary) -> Result<()> {
+    #[derive(serde::Serialize)]
+    struct JsonOutput {
+        workspaces: Vec<WorkspaceStatusJson>,
+        summary: StatusSummary,
+    }
+
+    #[derive(serde::Serialize)]
+    struct WorkspaceStatusJson {
+        name: String,
+        path: String,
+        repository: String,
+        branch: Option<String>,
+        uncommitted_changes: bool,
+        unpushed_branch: bool,
+        merged_branch: bool,
+        status_details: Option<StatusDetailsJson>,
+    }
+
+    #[derive(serde::Serialize)]
+    struct StatusDetailsJson {
+        modified_files: Vec<String>,
+        untracked_files: Vec<String>,
+    }
+
+    let workspaces: Vec<WorkspaceStatusJson> = statuses
+        .iter()
+        .map(|ws| WorkspaceStatusJson {
+            name: ws.workspace.name.clone(),
+            path: ws.workspace.path.display().to_string(),
+            repository: ws.workspace.repository.clone(),
+            branch: ws.details.branch_name.clone(),
+            uncommitted_changes: ws.details.uncommitted_changes,
+            unpushed_branch: ws.details.unpushed_branch,
+            merged_branch: ws.details.merged_branch,
+            status_details: ws
+                .details
+                .status_details
+                .as_ref()
+                .map(|d| StatusDetailsJson {
+                    modified_files: d.modified_files.clone(),
+                    untracked_files: d.untracked_files.clone(),
+                }),
+        })
+        .collect();
+
+    let output = JsonOutput {
+        workspaces,
+        summary: StatusSummary {
+            total: summary.total,
+            uncommitted: summary.uncommitted,
+            unpushed: summary.unpushed,
+            merged: summary.merged,
+            clean: summary.clean,
+        },
+    };
+
+    let json = serde_json::to_string_pretty(&output)?;
+    println!("{}", json);
+
+    Ok(())
+}
+
+fn cmd_workspace_check(
+    repo: Option<String>,
+    uncommitted: bool,
+    unpushed: bool,
+    merged: bool,
+    format: String,
+) -> Result<()> {
+    // Find the Forge
+    let forge = find_forge()?;
+
+    // List workspaces (optionally filtered by repository)
+    let mut workspaces = list_workspaces(&forge)?;
+
+    // Filter by repository if specified
+    if let Some(ref repo_spec) = repo {
+        let repo_info = find_repository(&forge, repo_spec)?;
+        workspaces.retain(|w| w.repository == repo_info.dir_name);
+    }
+
+    if workspaces.is_empty() {
+        if let Some(ref repo_spec) = repo {
+            println!("No workspaces found for repository '{}'.", repo_spec);
+            println!();
+            println!(
+                "Run 'forge workspace create {}' to create a workspace.",
+                repo_spec
+            );
+        } else {
+            println!("No workspaces found.");
+            println!();
+            println!("Run 'forge workspace create' to create a workspace.");
+        }
+        return Ok(());
+    }
+
+    // Determine which checks to perform (default: all if none specified)
+    let all_checks = !uncommitted && !unpushed && !merged;
+    let check_uncommitted = uncommitted || all_checks;
+    let check_unpushed = unpushed || all_checks;
+    let check_merged = merged || all_checks;
+
+    // Gather status for all workspaces
+    let mut workspace_statuses: Vec<WorkspaceWithStatus> = Vec::new();
+    for workspace in workspaces {
+        let details = get_workspace_status_details(&workspace, &forge)?;
+        workspace_statuses.push(WorkspaceWithStatus { workspace, details });
+    }
+
+    // Filter to only workspaces matching the requested conditions
+    let matching: Vec<&WorkspaceWithStatus> = workspace_statuses
+        .iter()
+        .filter(|ws| {
+            (check_uncommitted && ws.details.uncommitted_changes)
+                || (check_unpushed && ws.details.unpushed_branch)
+                || (check_merged && ws.details.merged_branch)
+        })
+        .collect();
+
+    match format.as_str() {
+        "json" => {
+            print_check_json(&matching, check_uncommitted, check_unpushed, check_merged)?;
+        }
+        _ => {
+            print_check_text(&matching, check_uncommitted, check_unpushed, check_merged)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn print_check_text(
+    matching: &[&WorkspaceWithStatus],
+    check_uncommitted: bool,
+    check_unpushed: bool,
+    check_merged: bool,
+) -> Result<()> {
+    if matching.is_empty() {
+        let mut checks = Vec::new();
+        if check_uncommitted {
+            checks.push("uncommitted changes");
+        }
+        if check_unpushed {
+            checks.push("unpushed branches");
+        }
+        if check_merged {
+            checks.push("merged branches");
+        }
+        println!("No workspaces found with {}.", checks.join(", "));
+        return Ok(());
+    }
+
+    println!();
+
+    // Group by condition type
+    if check_uncommitted {
+        let uncommitted: Vec<_> = matching
+            .iter()
+            .filter(|w| w.details.uncommitted_changes)
+            .collect();
+        if !uncommitted.is_empty() {
+            println!("Uncommitted Changes ({}):", uncommitted.len());
+            for ws in &uncommitted {
+                let change_summary = if let Some(ref details) = ws.details.status_details {
+                    let mut parts = Vec::new();
+                    if !details.modified_files.is_empty() {
+                        parts.push(format!("M:{}", details.modified_files.len()));
+                    }
+                    if !details.untracked_files.is_empty() {
+                        parts.push(format!("?:{}", details.untracked_files.len()));
+                    }
+                    parts.join(" ")
+                } else {
+                    String::new()
+                };
+                println!(
+                    "  {}/{}  {}",
+                    ws.workspace.repository, ws.workspace.name, change_summary
+                );
+            }
+            println!();
+        }
+    }
+
+    if check_unpushed {
+        let unpushed: Vec<_> = matching
+            .iter()
+            .filter(|w| w.details.unpushed_branch)
+            .collect();
+        if !unpushed.is_empty() {
+            println!("Unpushed Branches ({}):", unpushed.len());
+            for ws in &unpushed {
+                let branch = ws.details.branch_name.as_deref().unwrap_or("(unknown)");
+                println!(
+                    "  {}/{}  Branch '{}' not on remote",
+                    ws.workspace.repository, ws.workspace.name, branch
+                );
+            }
+            println!();
+        }
+    }
+
+    if check_merged {
+        let merged: Vec<_> = matching
+            .iter()
+            .filter(|w| w.details.merged_branch)
+            .collect();
+        if !merged.is_empty() {
+            println!("Merged Branches ({}):", merged.len());
+            for ws in &merged {
+                let branch = ws.details.branch_name.as_deref().unwrap_or("(unknown)");
+                let default = ws.details.default_branch.as_deref().unwrap_or("main");
+                println!(
+                    "  {}/{}  Branch '{}' merged to '{}'",
+                    ws.workspace.repository, ws.workspace.name, branch, default
+                );
+            }
+            println!();
+        }
+    }
+
+    Ok(())
+}
+
+fn print_check_json(
+    matching: &[&WorkspaceWithStatus],
+    check_uncommitted: bool,
+    check_unpushed: bool,
+    check_merged: bool,
+) -> Result<()> {
+    #[derive(serde::Serialize)]
+    struct JsonOutput {
+        checks_performed: ChecksPerformed,
+        workspaces: Vec<WorkspaceCheckJson>,
+        count: usize,
+    }
+
+    #[derive(serde::Serialize)]
+    struct ChecksPerformed {
+        uncommitted: bool,
+        unpushed: bool,
+        merged: bool,
+    }
+
+    #[derive(serde::Serialize)]
+    struct WorkspaceCheckJson {
+        name: String,
+        path: String,
+        repository: String,
+        branch: Option<String>,
+        uncommitted_changes: bool,
+        unpushed_branch: bool,
+        merged_branch: bool,
+    }
+
+    let workspaces: Vec<WorkspaceCheckJson> = matching
+        .iter()
+        .map(|ws| WorkspaceCheckJson {
+            name: ws.workspace.name.clone(),
+            path: ws.workspace.path.display().to_string(),
+            repository: ws.workspace.repository.clone(),
+            branch: ws.details.branch_name.clone(),
+            uncommitted_changes: ws.details.uncommitted_changes,
+            unpushed_branch: ws.details.unpushed_branch,
+            merged_branch: ws.details.merged_branch,
+        })
+        .collect();
+
+    let output = JsonOutput {
+        checks_performed: ChecksPerformed {
+            uncommitted: check_uncommitted,
+            unpushed: check_unpushed,
+            merged: check_merged,
+        },
+        workspaces,
+        count: matching.len(),
+    };
+
+    let json = serde_json::to_string_pretty(&output)?;
+    println!("{}", json);
 
     Ok(())
 }

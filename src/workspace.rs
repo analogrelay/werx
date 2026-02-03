@@ -42,6 +42,41 @@ pub enum WorkspaceStatus {
     Prunable,
 }
 
+/// Extended workspace status with remote tracking information
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkspaceStatusDetails {
+    /// Workspace has uncommitted changes (modified, staged, or untracked files)
+    pub uncommitted_changes: bool,
+    /// Workspace branch is not pushed to any remote
+    pub unpushed_branch: bool,
+    /// Workspace branch is merged to the default branch and pushed
+    pub merged_branch: bool,
+    /// The name of the current branch
+    pub branch_name: Option<String>,
+    /// The default/main branch for this repository
+    pub default_branch: Option<String>,
+    /// Detailed status information
+    pub status_details: Option<StatusDetails>,
+}
+
+/// Detailed status information for a workspace
+#[derive(Debug, Clone, Serialize)]
+pub struct StatusDetails {
+    /// List of modified files (staged or unstaged)
+    pub modified_files: Vec<String>,
+    /// List of untracked files
+    pub untracked_files: Vec<String>,
+}
+
+/// Information about branch merge status
+#[derive(Debug, Clone, Serialize)]
+pub struct MergeDetails {
+    /// The branch that this branch is merged into
+    pub merged_into: String,
+    /// The remote tracking branch, if any
+    pub remote_tracking: Option<String>,
+}
+
 impl Forge {
     /// Get the workspaces directory (same as the root directory)
     pub fn workspaces_dir(&self) -> PathBuf {
@@ -735,6 +770,216 @@ pub fn select_workspace_with_query(
 
     // Launch interactive fuzzy search (with query pre-filled if provided)
     fuzzy_select_workspace(workspaces, query)
+}
+
+/// Check if a workspace's branch exists on any remote
+pub fn check_branch_pushed(workspace_path: &Path, branch: &str) -> Result<bool> {
+    // Get list of remote branches
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(workspace_path)
+        .arg("branch")
+        .arg("-r")
+        .output()
+        .context("Failed to execute git branch -r")?;
+
+    if !output.status.success() {
+        // If git command fails, assume branch is unpushed
+        return Ok(false);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Parse remote branches and check if any match our branch
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        // Remote branches are in format: origin/branch-name or remote/branch-name
+        if let Some(remote_branch) = trimmed.split('/').nth(1) {
+            if remote_branch == branch {
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+/// Get the default branch for a repository
+pub fn get_default_branch(repo_path: &Path) -> Result<String> {
+    // First try to get the default branch from symbolic-ref
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("symbolic-ref")
+        .arg("refs/remotes/origin/HEAD")
+        .output();
+
+    if let Ok(output) = output {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let branch_ref = stdout.trim();
+            // Extract branch name from refs/remotes/origin/main
+            if let Some(branch_name) = branch_ref.strip_prefix("refs/remotes/origin/") {
+                return Ok(branch_name.to_string());
+            }
+        }
+    }
+
+    // Fallback: try common default branch names
+    for default_name in &["main", "master", "develop"] {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repo_path)
+            .arg("rev-parse")
+            .arg("--verify")
+            .arg(format!("refs/remotes/origin/{}", default_name))
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                return Ok(default_name.to_string());
+            }
+        }
+    }
+
+    Err(anyhow!("Could not determine default branch"))
+}
+
+/// Check if a workspace's branch is merged to the default branch
+pub fn check_branch_merged(
+    workspace_path: &Path,
+    branch: &str,
+    default_branch: &str,
+) -> Result<bool> {
+    // Don't check if we're on the default branch itself
+    if branch == default_branch {
+        return Ok(false);
+    }
+
+    // Check if the branch is fully merged using git merge-base
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(workspace_path)
+        .arg("merge-base")
+        .arg("--is-ancestor")
+        .arg(branch)
+        .arg(format!("origin/{}", default_branch))
+        .output()
+        .context("Failed to execute git merge-base")?;
+
+    // Exit code 0 means it's an ancestor (merged)
+    // Exit code 1 means it's not an ancestor (not merged)
+    // Other exit codes indicate errors
+    Ok(output.status.success())
+}
+
+/// Get comprehensive status for a workspace
+pub fn get_workspace_status_details(workspace: &Workspace, forge: &Forge) -> Result<WorkspaceStatusDetails> {
+    let path = &workspace.path;
+
+    // Check if workspace exists
+    if !path.exists() {
+        return Ok(WorkspaceStatusDetails {
+            uncommitted_changes: false,
+            unpushed_branch: false,
+            merged_branch: false,
+            branch_name: workspace.branch.clone(),
+            default_branch: None,
+            status_details: None,
+        });
+    }
+
+    // Get branch name
+    let branch_name = workspace.branch.clone();
+
+    // Check uncommitted changes
+    let basic_status = check_workspace_status(path)?;
+    let uncommitted_changes = matches!(
+        basic_status,
+        WorkspaceStatus::Modified | WorkspaceStatus::Untracked
+    );
+
+    // Get detailed status if there are uncommitted changes
+    let status_details = if uncommitted_changes {
+        Some(get_detailed_status(path)?)
+    } else {
+        None
+    };
+
+    // Get repository path for default branch checking
+    let repo_path = forge.repos_dir().join(&workspace.repository);
+
+    // Get default branch
+    let default_branch = get_default_branch(&repo_path).ok();
+
+    // Check if branch is pushed (skip if no branch name)
+    let unpushed_branch = if let Some(ref branch) = branch_name {
+        !check_branch_pushed(path, branch).unwrap_or(true)
+    } else {
+        false
+    };
+
+    // Check if branch is merged (only if we have both branch names and branch is pushed)
+    let merged_branch = if let (Some(branch), Some(default)) = (&branch_name, &default_branch) {
+        if !unpushed_branch && branch != default {
+            check_branch_merged(path, branch, default).unwrap_or(false)
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    Ok(WorkspaceStatusDetails {
+        uncommitted_changes,
+        unpushed_branch,
+        merged_branch,
+        branch_name,
+        default_branch,
+        status_details,
+    })
+}
+
+/// Get detailed status information for a workspace
+fn get_detailed_status(path: &Path) -> Result<StatusDetails> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("status")
+        .arg("--porcelain")
+        .output()
+        .context("Failed to execute git status")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut modified_files = Vec::new();
+    let mut untracked_files = Vec::new();
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Parse git status porcelain format
+        if trimmed.starts_with("??") {
+            // Untracked file
+            let file = trimmed.strip_prefix("??").unwrap_or("").trim();
+            untracked_files.push(file.to_string());
+        } else {
+            // Modified file (staged or unstaged)
+            let file = if trimmed.len() > 3 {
+                trimmed[3..].trim().to_string()
+            } else {
+                continue;
+            };
+            modified_files.push(file);
+        }
+    }
+
+    Ok(StatusDetails {
+        modified_files,
+        untracked_files,
+    })
 }
 
 #[cfg(test)]

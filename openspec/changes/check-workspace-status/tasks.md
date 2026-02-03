@@ -3,6 +3,7 @@
 ## Phase 1: Core Infrastructure
 
 ### Task 1: Extend workspace status data structures
+
 - Add `WorkspaceStatusDetails` struct with fields for uncommitted, unpushed, and merged status
 - Add fields for storing detailed status information (branch names, merge targets, change summaries)
 - Update `Workspace` struct if needed to support new status information
@@ -10,6 +11,7 @@
 - **Deliverable**: New types in `src/workspace.rs` with documentation
 
 ### Task 2: Implement unpushed branch detection
+
 - Add `check_branch_pushed()` function to check if branch exists on any remote
 - Use `git branch -r` or `git for-each-ref refs/remotes` to list remote branches
 - Handle cases: no remotes, multiple remotes, detached HEAD
@@ -18,6 +20,7 @@
 - **Deliverable**: Working `check_branch_pushed()` function in `src/workspace.rs`
 
 ### Task 3: Implement merged branch detection
+
 - Add `get_default_branch()` function to identify repository default branch
 - Add `check_branch_merged()` function using `git merge-base --is-ancestor`
 - Handle special cases: workspace is on default branch itself, default branch unknown
@@ -26,6 +29,7 @@
 - **Deliverable**: Working merge detection functions in `src/workspace.rs`
 
 ### Task 4: Implement comprehensive status checking
+
 - Add `get_workspace_status_details()` function that combines all status checks
 - Integrate existing `check_workspace_status()` for uncommitted changes
 - Add new unpushed and merged checks
@@ -36,6 +40,7 @@
 ## Phase 2: Status Command Implementation
 
 ### Task 5: Add CLI command structure
+
 - Add `Status` variant to `WorkspaceCommands` enum in `src/main.rs`
 - Add command arguments: optional repository filter, `--format` flag
 - Add command help text and examples
@@ -43,6 +48,7 @@
 - **Deliverable**: CLI command structure ready for implementation
 
 ### Task 6: Implement status command handler
+
 - Create handler function for `workspace status` command
 - List all workspaces (or filter by repository if specified)
 - Call `get_workspace_status_details()` for each workspace
@@ -51,6 +57,7 @@
 - **Deliverable**: Working status command with repository filtering
 
 ### Task 7: Implement text output formatter
+
 - Create formatter for human-readable output
 - Group workspaces by status category (uncommitted, unpushed, merged, clean)
 - Add section headers and summary counts
@@ -60,6 +67,7 @@
 - **Deliverable**: Well-formatted text output for status command
 
 ### Task 8: Implement JSON output formatter
+
 - Create JSON serialization for workspace status
 - Include all status dimensions in output
 - Add summary section with counts
@@ -68,6 +76,7 @@
 - **Deliverable**: JSON output format for status command
 
 ### Task 9: Add progress indication
+
 - Detect long-running operations (>2 seconds)
 - Show progress indicator in interactive mode
 - Display count of workspaces checked
@@ -78,6 +87,7 @@
 ## Phase 3: Check Command Implementation
 
 ### Task 10: Add check command CLI structure
+
 - Add `Check` variant to `WorkspaceCommands` enum
 - Add flags: `--uncommitted`, `--unpushed`, `--merged`
 - Add `--format` flag and optional repository argument
@@ -86,6 +96,7 @@
 - **Deliverable**: CLI structure for check command
 
 ### Task 11: Implement check command handler
+
 - Create handler that processes check flags
 - Determine which checks to perform based on flags (default: all)
 - Filter workspaces by repository if specified
@@ -94,6 +105,7 @@
 - **Deliverable**: Working check command with filtering
 
 ### Task 12: Implement check output formatters
+
 - Create text formatter for check results
 - Create JSON formatter for check results
 - Create quiet mode formatter (workspace identifiers only)
@@ -102,6 +114,7 @@
 - **Deliverable**: Complete output formatting for check command
 
 ### Task 13: Optimize performance for targeted checks
+
 - Implement conditional execution of status checks based on flags
 - Skip network operations when checking only uncommitted changes
 - Add early exit optimizations
@@ -112,6 +125,7 @@
 ## Phase 4: Error Handling and Polish
 
 ### Task 14: Implement comprehensive error handling
+
 - Add graceful handling for network failures (show warnings, continue)
 - Handle corrupted workspaces (report error, continue with others)
 - Handle missing default branches (skip merge checks, warn)
@@ -120,6 +134,7 @@
 - **Deliverable**: Robust error handling throughout
 
 ### Task 15: Add empty state handling
+
 - Implement helpful messages when no workspaces exist
 - Add messages when no workspaces match filters
 - Add suggestions (create workspace, check repository name)
@@ -127,6 +142,7 @@
 - **Deliverable**: User-friendly empty state messages
 
 ### Task 16: Update documentation
+
 - Update command help text with examples
 - Add inline code documentation for new functions
 - Document exit codes and output formats
@@ -136,6 +152,7 @@
 ## Phase 5: Testing and Validation
 
 ### Task 17: Write comprehensive integration tests
+
 - Test status command with various workspace configurations
 - Test check command with different flag combinations
 - Test repository filtering
@@ -145,6 +162,7 @@
 - **Deliverable**: Comprehensive test suite in `tests/`
 
 ### Task 18: Performance testing
+
 - Test with large number of workspaces (50+)
 - Measure execution time for various check types
 - Verify parallel checking works correctly
@@ -153,6 +171,7 @@
 - **Deliverable**: Performance benchmarks and any necessary optimizations
 
 ### Task 19: Manual testing and polish
+
 - Test commands in real-world forge setups
 - Verify color output looks good in terminals
 - Test with various git configurations (multiple remotes, no remotes, etc.)
