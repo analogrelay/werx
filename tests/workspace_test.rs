@@ -1,26 +1,16 @@
 mod common;
 
-use common::{assert_failure, assert_success, run_werx};
-use tempfile::TempDir;
+use common::{TestContext, assert_failure, assert_success};
 
 // werx workspace list tests
 
 #[test]
 fn test_workspace_list_empty() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("ws-empty-werx");
-
-    // Initialize werx
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
     // List workspaces
-    let output = run_werx(
-        &["workspace", "list"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["workspace", "list"], &[]);
 
     assert_success(&output);
 
@@ -30,20 +20,11 @@ fn test_workspace_list_empty() {
 
 #[test]
 fn test_workspace_list_json_format_empty() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("ws-json-werx");
-
-    // Initialize werx
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
     // List workspaces in JSON format (empty case returns text, not JSON)
-    let output = run_werx(
-        &["workspace", "list", "--format", "json"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["workspace", "list", "--format", "json"], &[]);
 
     assert_success(&output);
 
@@ -55,13 +36,9 @@ fn test_workspace_list_json_format_empty() {
 
 #[test]
 fn test_workspace_list_requires_werx() {
-    let temp_dir = TempDir::new().unwrap();
-    let non_werx_path = temp_dir.path().join("not-a-werx");
+    let ctx = TestContext::new();
 
-    let output = run_werx(
-        &["workspace", "list"],
-        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["workspace", "list"], &[]);
 
     assert_failure(&output);
 
@@ -73,10 +50,9 @@ fn test_workspace_list_requires_werx() {
 
 #[test]
 fn test_workspace_create_requires_werx() {
-    let temp_dir = TempDir::new().unwrap();
-    let non_werx_path = temp_dir.path().join("not-a-werx");
+    let ctx = TestContext::new();
 
-    let output = run_werx(
+    let output = ctx.run_werx(
         &[
             "workspace",
             "create",
@@ -85,7 +61,7 @@ fn test_workspace_create_requires_werx() {
             "--name",
             "test",
         ],
-        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
+        &[],
     );
 
     assert_failure(&output);
@@ -98,13 +74,9 @@ fn test_workspace_create_requires_werx() {
 
 #[test]
 fn test_workspace_remove_requires_werx() {
-    let temp_dir = TempDir::new().unwrap();
-    let non_werx_path = temp_dir.path().join("not-a-werx");
+    let ctx = TestContext::new();
 
-    let output = run_werx(
-        &["workspace", "remove", "test", "--force"],
-        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["workspace", "remove", "test", "--force"], &[]);
 
     assert_failure(&output);
 
@@ -116,40 +88,22 @@ fn test_workspace_remove_requires_werx() {
 
 #[test]
 fn test_workspaces_alias() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("alias-werx");
-
-    // Initialize werx
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
     // Use 'workspaces' alias instead of 'workspace'
-    let output = run_werx(
-        &["workspaces", "list"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["workspaces", "list"], &[]);
 
     assert_success(&output);
 }
 
 #[test]
 fn test_wt_alias() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("wt-alias-werx");
-
-    // Initialize werx
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
     // Use 'wt' alias instead of 'workspace'
-    let output = run_werx(
-        &["wt", "list"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["wt", "list"], &[]);
 
     assert_success(&output);
 }
@@ -158,10 +112,9 @@ fn test_wt_alias() {
 
 #[test]
 fn test_go_requires_werx() {
-    let temp_dir = TempDir::new().unwrap();
-    let non_werx_path = temp_dir.path().join("not-a-werx");
+    let ctx = TestContext::new();
 
-    let output = run_werx(&["go"], &[("WERX_DIR", non_werx_path.to_str().unwrap())]);
+    let output = ctx.run_werx(&["go"], &[]);
 
     assert_failure(&output);
 
@@ -171,17 +124,11 @@ fn test_go_requires_werx() {
 
 #[test]
 fn test_go_with_empty_werx() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("empty-go-werx");
-
-    // Initialize werx
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
     // Try to go with no workspaces
-    let output = run_werx(&["go"], &[("WERX_DIR", werx_path.to_str().unwrap())]);
+    let output = ctx.run_werx(&["go"], &[]);
 
     assert_success(&output);
 
@@ -195,49 +142,32 @@ fn test_go_with_empty_werx() {
 
 #[test]
 fn test_workspace_create_from_existing_repo() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("ws-create-werx");
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
-    // Initialize werx and create a repository
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
-
-    let create_output = run_werx(
-        &["create", "myorg/myrepo"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let create_output = ctx.run_werx(&["create", "myorg/myrepo"], &[]);
     assert_success(&create_output);
 
     // First, create a new branch in the bare repo for us to checkout
-    let bare_repo_path = werx_path.join(".werx/repos/myrepo");
-    let branch_output = std::process::Command::new("git")
-        .args([
-            "-C",
-            bare_repo_path.to_str().unwrap(),
-            "branch",
-            "feature-branch",
-            "main",
-        ])
-        .output()
-        .expect("Failed to create branch");
+    let bare_repo_path = ctx.werx_path().join(".werx/repos/myrepo");
+    let branch_output = ctx.run_git_in(&bare_repo_path, &["branch", "feature-branch", "main"]);
     assert!(
         branch_output.status.success(),
-        "Failed to create test branch"
+        "Failed to create test branch: {}",
+        String::from_utf8_lossy(&branch_output.stderr)
     );
 
     // Create a new workspace for the feature branch
-    let output = run_werx(
+    let output = ctx.run_werx(
         &[
             "workspace",
             "create",
             "myorg/myrepo",
-            "feature-branch", // Use the new branch we created
+            "feature-branch",
             "--name",
             "feature-ws",
         ],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
+        &[],
     );
 
     assert_success(&output);
@@ -250,7 +180,7 @@ fn test_workspace_create_from_existing_repo() {
     );
 
     // Verify the workspace path exists
-    let workspace_path = werx_path.join("myrepo/feature-ws");
+    let workspace_path = ctx.werx_path().join("myrepo/feature-ws");
     assert!(
         workspace_path.exists(),
         "Workspace should exist at {:?}",
@@ -258,10 +188,7 @@ fn test_workspace_create_from_existing_repo() {
     );
 
     // Verify it appears in workspace list
-    let list_output = run_werx(
-        &["workspace", "list"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let list_output = ctx.run_werx(&["workspace", "list"], &[]);
     assert_success(&list_output);
 
     let list_stdout = String::from_utf8_lossy(&list_output.stdout);
@@ -274,39 +201,22 @@ fn test_workspace_create_from_existing_repo() {
 
 #[test]
 fn test_workspace_create_custom_name() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("ws-name-werx");
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
-    // Initialize werx and create a repository
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
-
-    run_werx(
-        &["create", "company/project"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    ctx.run_werx(&["create", "company/project"], &[]);
 
     // Create a new branch for our custom workspace
-    let bare_repo_path = werx_path.join(".werx/repos/project");
-    let branch_output = std::process::Command::new("git")
-        .args([
-            "-C",
-            bare_repo_path.to_str().unwrap(),
-            "branch",
-            "custom-branch",
-            "main",
-        ])
-        .output()
-        .expect("Failed to create branch");
+    let bare_repo_path = ctx.werx_path().join(".werx/repos/project");
+    let branch_output = ctx.run_git_in(&bare_repo_path, &["branch", "custom-branch", "main"]);
     assert!(
         branch_output.status.success(),
-        "Failed to create test branch"
+        "Failed to create test branch: {}",
+        String::from_utf8_lossy(&branch_output.stderr)
     );
 
     // Create workspace with custom name
-    let output = run_werx(
+    let output = ctx.run_werx(
         &[
             "workspace",
             "create",
@@ -315,16 +225,13 @@ fn test_workspace_create_custom_name() {
             "--name",
             "my-custom-workspace",
         ],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
+        &[],
     );
 
     assert_success(&output);
 
     // Verify the custom-named workspace appears in list
-    let list_output = run_werx(
-        &["workspace", "list"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let list_output = ctx.run_werx(&["workspace", "list"], &[]);
     assert_success(&list_output);
 
     let stdout = String::from_utf8_lossy(&list_output.stdout);
@@ -335,7 +242,7 @@ fn test_workspace_create_custom_name() {
     );
 
     // Verify the directory was created with the custom name
-    let workspace_path = werx_path.join("project/my-custom-workspace");
+    let workspace_path = ctx.werx_path().join("project/my-custom-workspace");
     assert!(
         workspace_path.exists(),
         "Workspace directory should exist at {:?}",
@@ -345,39 +252,22 @@ fn test_workspace_create_custom_name() {
 
 #[test]
 fn test_workspace_list_json_with_workspaces() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("ws-json-list-werx");
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
-    // Initialize werx and create a repository (which creates main workspace)
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
-
-    run_werx(
-        &["create", "org/jsontest"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    ctx.run_werx(&["create", "org/jsontest"], &[]);
 
     // Create a new branch in the bare repo for the additional workspace
-    let bare_repo_path = werx_path.join(".werx/repos/jsontest");
-    let branch_output = std::process::Command::new("git")
-        .args([
-            "-C",
-            bare_repo_path.to_str().unwrap(),
-            "branch",
-            "feature-branch",
-            "main",
-        ])
-        .output()
-        .expect("Failed to create branch");
+    let bare_repo_path = ctx.werx_path().join(".werx/repos/jsontest");
+    let branch_output = ctx.run_git_in(&bare_repo_path, &["branch", "feature-branch", "main"]);
     assert!(
         branch_output.status.success(),
-        "Failed to create test branch"
+        "Failed to create test branch: {}",
+        String::from_utf8_lossy(&branch_output.stderr)
     );
 
     // Create an additional workspace on the new branch
-    run_werx(
+    ctx.run_werx(
         &[
             "workspace",
             "create",
@@ -386,14 +276,11 @@ fn test_workspace_list_json_with_workspaces() {
             "--name",
             "feature-ws",
         ],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
+        &[],
     );
 
     // List workspaces in JSON format
-    let output = run_werx(
-        &["workspace", "list", "--format", "json"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["workspace", "list", "--format", "json"], &[]);
 
     assert_success(&output);
 
@@ -434,39 +321,22 @@ fn test_workspace_list_json_with_workspaces() {
 
 #[test]
 fn test_workspace_remove_with_force() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("ws-remove-werx");
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
-    // Initialize werx and create a repository
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
-
-    run_werx(
-        &["create", "test/removews"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    ctx.run_werx(&["create", "test/removews"], &[]);
 
     // Create a new branch in the bare repo for the workspace we'll remove
-    let bare_repo_path = werx_path.join(".werx/repos/removews");
-    let branch_output = std::process::Command::new("git")
-        .args([
-            "-C",
-            bare_repo_path.to_str().unwrap(),
-            "branch",
-            "remove-branch",
-            "main",
-        ])
-        .output()
-        .expect("Failed to create branch");
+    let bare_repo_path = ctx.werx_path().join(".werx/repos/removews");
+    let branch_output = ctx.run_git_in(&bare_repo_path, &["branch", "remove-branch", "main"]);
     assert!(
         branch_output.status.success(),
-        "Failed to create test branch"
+        "Failed to create remove-branch: {}",
+        String::from_utf8_lossy(&branch_output.stderr)
     );
 
     // Create an extra workspace that we'll remove
-    run_werx(
+    ctx.run_werx(
         &[
             "workspace",
             "create",
@@ -475,20 +345,20 @@ fn test_workspace_remove_with_force() {
             "--name",
             "to-remove",
         ],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
+        &[],
     );
 
     // Verify it exists
-    let workspace_path = werx_path.join("removews/to-remove");
+    let workspace_path = ctx.werx_path().join("removews/to-remove");
     assert!(
         workspace_path.exists(),
         "Workspace should exist before removal"
     );
 
     // Remove the workspace with --force
-    let output = run_werx(
+    let output = ctx.run_werx(
         &["workspace", "remove", "removews/to-remove", "--force"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
+        &[],
     );
 
     assert_success(&output);
@@ -500,10 +370,7 @@ fn test_workspace_remove_with_force() {
     );
 
     // Verify it's not in the list
-    let list_output = run_werx(
-        &["workspace", "list"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let list_output = ctx.run_werx(&["workspace", "list"], &[]);
     let stdout = String::from_utf8_lossy(&list_output.stdout);
     assert!(
         !stdout.contains("to-remove"),
@@ -518,31 +385,19 @@ fn test_workspace_remove_with_force() {
 
 #[test]
 fn test_workspace_status_with_changes() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("ws-status-werx");
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
-    // Initialize werx and create a repository
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
-
-    run_werx(
-        &["create", "statustest/repo"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    ctx.run_werx(&["create", "statustest/repo"], &[]);
 
     // Make a change in the workspace (create a new file)
-    let workspace_path = werx_path.join("repo/main");
+    let workspace_path = ctx.werx_path().join("repo/main");
     let new_file = workspace_path.join("uncommitted.txt");
     std::fs::write(&new_file, "This is an uncommitted change\n")
         .expect("Failed to write test file");
 
     // Check workspace status
-    let output = run_werx(
-        &["workspace", "status"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["workspace", "status"], &[]);
 
     assert_success(&output);
 
@@ -557,55 +412,30 @@ fn test_workspace_status_with_changes() {
 
 #[test]
 fn test_workspace_check_uncommitted_filter() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("ws-check-werx");
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
-    // Initialize werx and create a repository
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
-
-    run_werx(
-        &["create", "checktest/repo"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    ctx.run_werx(&["create", "checktest/repo"], &[]);
 
     // Create two new branches in the bare repo for additional workspaces
-    let bare_repo_path = werx_path.join(".werx/repos/repo");
+    let bare_repo_path = ctx.werx_path().join(".werx/repos/repo");
 
-    let branch1_output = std::process::Command::new("git")
-        .args([
-            "-C",
-            bare_repo_path.to_str().unwrap(),
-            "branch",
-            "clean-branch",
-            "main",
-        ])
-        .output()
-        .expect("Failed to create branch");
+    let branch1_output = ctx.run_git_in(&bare_repo_path, &["branch", "clean-branch", "main"]);
     assert!(
         branch1_output.status.success(),
-        "Failed to create clean-branch"
+        "Failed to create clean-branch: {}",
+        String::from_utf8_lossy(&branch1_output.stderr)
     );
 
-    let branch2_output = std::process::Command::new("git")
-        .args([
-            "-C",
-            bare_repo_path.to_str().unwrap(),
-            "branch",
-            "dirty-branch",
-            "main",
-        ])
-        .output()
-        .expect("Failed to create branch");
+    let branch2_output = ctx.run_git_in(&bare_repo_path, &["branch", "dirty-branch", "main"]);
     assert!(
         branch2_output.status.success(),
-        "Failed to create dirty-branch"
+        "Failed to create dirty-branch: {}",
+        String::from_utf8_lossy(&branch2_output.stderr)
     );
 
     // Create two additional workspaces on the new branches
-    run_werx(
+    ctx.run_werx(
         &[
             "workspace",
             "create",
@@ -614,10 +444,10 @@ fn test_workspace_check_uncommitted_filter() {
             "--name",
             "clean-ws",
         ],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
+        &[],
     );
 
-    run_werx(
+    ctx.run_werx(
         &[
             "workspace",
             "create",
@@ -626,19 +456,16 @@ fn test_workspace_check_uncommitted_filter() {
             "--name",
             "dirty-ws",
         ],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
+        &[],
     );
 
     // Make changes only in dirty-ws
-    let dirty_workspace = werx_path.join("repo/dirty-ws");
+    let dirty_workspace = ctx.werx_path().join("repo/dirty-ws");
     let dirty_file = dirty_workspace.join("dirty.txt");
     std::fs::write(&dirty_file, "Uncommitted content\n").expect("Failed to write dirty file");
 
     // Run check with --uncommitted filter
-    let output = run_werx(
-        &["workspace", "check", "--uncommitted"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["workspace", "check", "--uncommitted"], &[]);
 
     assert_success(&output);
 

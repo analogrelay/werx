@@ -1,5 +1,7 @@
-{
-  "adjectives": [
+//! Auto-generated from data/namedata.json by build.rs
+//! Do not edit manually.
+
+pub const ADJECTIVES: &[&str] = &[
     "Arcane",
     "Blazing",
     "Celestial",
@@ -99,9 +101,10 @@
     "Bound",
     "Cursed",
     "Eternal",
-    "Ancient"
-  ],
-  "nouns": [
+    "Ancient",
+];
+
+pub const NOUNS: &[&str] = &[
     "Aegis",
     "Alchemist",
     "Anchor",
@@ -201,6 +204,5 @@
     "Warden",
     "Warlock",
     "Weaver",
-    "Wraith"
-  ]
-}
+    "Wraith",
+];

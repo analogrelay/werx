@@ -3,10 +3,6 @@ name: Release
 on:
   workflow_dispatch:
 
-env:
-  CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
-
 jobs:
   validate:
     name: Validate Release
@@ -31,95 +27,21 @@ jobs:
       - name: Validate changelog is marked
         run: ./script/helpers/mark-release --check
 
-  check:
-    name: Check (${{ matrix.os }}-${{ matrix.arch }})
-    needs: validate
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - os: linux
-            arch: x86_64
-            runner: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: linux
-            arch: aarch64
-            runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-          - os: macos
-            arch: x86_64
-            runner: macos-13
-            target: x86_64-apple-darwin
-          - os: macos
-            arch: aarch64
-            runner: macos-latest
-            target: aarch64-apple-darwin
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-action@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run checks
-        run: ./script/check
-
   build:
-    name: Build (${{ matrix.os }}-${{ matrix.arch }})
-    needs: check
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - os: linux
-            arch: x86_64
-            runner: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: linux
-            arch: aarch64
-            runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-          - os: macos
-            arch: x86_64
-            runner: macos-13
-            target: x86_64-apple-darwin
-          - os: macos
-            arch: aarch64
-            runner: macos-latest
-            target: aarch64-apple-darwin
+    needs: validate
+    uses: ./.github/workflows/_build.yml
+    with:
+      check-args: "--build --release"
+      upload-artifacts: true
+      fail-fast: true
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-action@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build release binary
-        run: cargo build --release
-
-      - name: Package binary
-        run: |
-          mkdir -p dist
-          cp target/release/werx dist/werx-${{ matrix.os }}-${{ matrix.arch }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: werx-${{ matrix.os }}-${{ matrix.arch }}
-          path: dist/werx-${{ matrix.os }}-${{ matrix.arch }}
+  nix-build:
+    needs: validate
+    uses: ./.github/workflows/_nix-build.yml
 
   release:
     name: Create Release
-    needs: [validate, build]
+    needs: [validate, build, nix-build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
