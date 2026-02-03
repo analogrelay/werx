@@ -1,19 +1,6 @@
 # Release History
 
-## 0.2.0 (Unreleased)
-
-### Features Added
-
-### Breaking Changes
-
-### Bugs Fixed
-
-### Other Changes
-
-- Merged `mark-release` and `bump-version` into single `post-release` script (PR TBD)
-
-
-## 0.1.0 (2026-02-03)
+## 0.1.0 (Unreleased)
 
 - Initial Release
 - Added `--build` and `--release` modes to `script/check` for flexible CI validation (#1)
@@ -31,5 +18,4 @@
 - Added Nix build job to CI and release workflows (#1)
 - Installed OpenCode in CI for agent detection tests (#1)
 - Updated AGENTS.md with changelog maintenance instructions
-### Other Changes
 
