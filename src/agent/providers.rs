@@ -25,14 +25,8 @@ pub struct AgentProvider {
 }
 
 impl AgentProvider {
-    /// Create a new provider with default settings
-    fn new(agent_type: AgentType) -> Self {
-        let (command, args) = match agent_type {
-            AgentType::OpenCode => ("opencode".to_string(), vec![]),
-            AgentType::Claude => ("claude".to_string(), vec![]),
-            AgentType::Copilot => ("gh".to_string(), vec!["copilot".to_string()]),
-        };
-
+    /// Create a new provider with specified command
+    fn new(agent_type: AgentType, command: String, args: Vec<String>) -> Self {
         Self {
             agent_type,
             command,
@@ -40,6 +34,16 @@ impl AgentProvider {
             available: false,
             path: None,
         }
+    }
+
+    /// Create a provider with default settings for the given type
+    fn default_for(agent_type: AgentType) -> Self {
+        let (command, args) = match agent_type {
+            AgentType::OpenCode => ("opencode".to_string(), vec![]),
+            AgentType::Claude => ("claude".to_string(), vec![]),
+            AgentType::Copilot => ("copilot".to_string(), vec![]),
+        };
+        Self::new(agent_type, command, args)
     }
 
     /// Get the full command with arguments as a string
@@ -89,7 +93,7 @@ pub fn detect_providers() -> Vec<AgentProvider> {
     let mut providers = Vec::new();
 
     // Check OpenCode
-    let mut opencode = AgentProvider::new(AgentType::OpenCode);
+    let mut opencode = AgentProvider::default_for(AgentType::OpenCode);
     if let Some(path) = find_executable("opencode") {
         opencode.available = true;
         opencode.path = Some(path);
@@ -97,22 +101,36 @@ pub fn detect_providers() -> Vec<AgentProvider> {
     providers.push(opencode);
 
     // Check Claude Code
-    let mut claude = AgentProvider::new(AgentType::Claude);
+    let mut claude = AgentProvider::default_for(AgentType::Claude);
     if let Some(path) = find_executable("claude") {
         claude.available = true;
         claude.path = Some(path);
     }
     providers.push(claude);
 
-    // Check GitHub Copilot CLI
-    let mut copilot = AgentProvider::new(AgentType::Copilot);
-    if let Some(path) = find_executable("gh") {
-        // Also need to check if copilot extension is installed
+    // Check GitHub Copilot CLI - prefer standalone `copilot` over `gh copilot`
+    let copilot = if let Some(path) = find_executable("copilot") {
+        // Standalone copilot CLI found
+        let mut provider = AgentProvider::default_for(AgentType::Copilot);
+        provider.available = true;
+        provider.path = Some(path);
+        provider
+    } else if let Some(path) = find_executable("gh") {
+        // Check if gh copilot extension is installed
+        let mut provider = AgentProvider::new(
+            AgentType::Copilot,
+            "gh".to_string(),
+            vec!["copilot".to_string()],
+        );
         if check_gh_copilot_extension() {
-            copilot.available = true;
-            copilot.path = Some(path);
+            provider.available = true;
+            provider.path = Some(path);
         }
-    }
+        provider
+    } else {
+        // Neither found, return default (unavailable)
+        AgentProvider::default_for(AgentType::Copilot)
+    };
     providers.push(copilot);
 
     providers
@@ -191,27 +209,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_agent_provider_new() {
-        let provider = AgentProvider::new(AgentType::OpenCode);
+    fn test_agent_provider_default_for() {
+        let provider = AgentProvider::default_for(AgentType::OpenCode);
         assert_eq!(provider.command, "opencode");
         assert!(provider.args.is_empty());
         assert!(!provider.available);
     }
 
     #[test]
-    fn test_agent_provider_copilot_args() {
-        let provider = AgentProvider::new(AgentType::Copilot);
+    fn test_agent_provider_copilot_default() {
+        // Default copilot uses standalone CLI
+        let provider = AgentProvider::default_for(AgentType::Copilot);
+        assert_eq!(provider.command, "copilot");
+        assert!(provider.args.is_empty());
+    }
+
+    #[test]
+    fn test_agent_provider_gh_copilot() {
+        // gh copilot variant
+        let provider = AgentProvider::new(
+            AgentType::Copilot,
+            "gh".to_string(),
+            vec!["copilot".to_string()],
+        );
         assert_eq!(provider.command, "gh");
         assert_eq!(provider.args, vec!["copilot"]);
+        assert_eq!(provider.full_command(), "gh copilot");
     }
 
     #[test]
     fn test_full_command() {
-        let provider = AgentProvider::new(AgentType::Copilot);
+        let provider = AgentProvider::new(
+            AgentType::Copilot,
+            "gh".to_string(),
+            vec!["copilot".to_string()],
+        );
         assert_eq!(provider.full_command(), "gh copilot");
 
-        let provider = AgentProvider::new(AgentType::OpenCode);
+        let provider = AgentProvider::default_for(AgentType::OpenCode);
         assert_eq!(provider.full_command(), "opencode");
+
+        let provider = AgentProvider::default_for(AgentType::Copilot);
+        assert_eq!(provider.full_command(), "copilot");
     }
 
     #[test]
