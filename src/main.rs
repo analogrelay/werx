@@ -1379,15 +1379,12 @@ fn cmd_agent_spawn(
     };
 
     // Handle branch - if not specified, prompt for a new branch name
-    let final_branch = if let Some(b) = branch {
-        Some(b)
+    let (final_branch, base_branch) = if let Some(b) = branch {
+        (Some(b), None)
     } else {
-        // Get the base branch (default branch of the repo)
-        let base_branch = repo_info.default_branch.as_deref().unwrap_or("main");
-
-        // Prompt for a new branch name
-        let new_branch = prompt_branch_name(base_branch)?;
-        Some(new_branch)
+        // Prompt for a new branch name with option to change base branch
+        let (new_branch, base) = prompt_branch_name(&forge, &repo_info)?;
+        (Some(new_branch), Some(base))
     };
 
     // Handle edit-prompt
@@ -1401,6 +1398,7 @@ fn cmd_agent_spawn(
     let options = SpawnOptions {
         agent_type,
         branch: final_branch,
+        base_branch,
         prompt: final_prompt,
     };
 

@@ -70,7 +70,16 @@ The system SHALL provide a command to spawn a coding agent in an isolated worktr
 - **WHEN** user runs `forge agent spawn` without a branch argument
 - **THEN** the system prompts for a new branch name
 - **AND** displays the base branch (repository's default branch)
+- **AND** shows a hint that Tab can be pressed to change the base branch
 - **AND** the user enters the name for the new branch
+
+#### Scenario: Change base branch during prompt
+
+- **WHEN** user is being prompted for a new branch name
+- **AND** user presses Tab
+- **THEN** the system presents a fuzzy-searchable list of branches using skim
+- **AND** the user can select a different base branch
+- **AND** after selection, returns to the branch name prompt with the new base branch displayed
 
 #### Scenario: Spawn with specific agent type
 

@@ -166,8 +166,10 @@ impl SpawnResult {
 pub struct SpawnOptions {
     /// Specific agent type to use (overrides preferences)
     pub agent_type: Option<AgentType>,
-    /// Branch to checkout (defaults to repository's default branch)
+    /// Branch to checkout or create
     pub branch: Option<String>,
+    /// Base branch to create new branch from (if branch doesn't exist)
+    pub base_branch: Option<String>,
     /// Initial prompt to send to the agent
     pub prompt: Option<String>,
 }

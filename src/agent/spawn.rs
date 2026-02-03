@@ -53,9 +53,21 @@ pub fn spawn_agent(
     // Generate a unique agent name
     let agent_name = generate_agent_name(&existing_names);
 
+    // Determine the base branch for creating new branches
+    let base_branch = options
+        .base_branch
+        .as_deref()
+        .or(repo_info.default_branch.as_deref())
+        .unwrap_or("main");
+
     // Check if the branch already has a worktree and resolve if needed
-    let (actual_branch, created_agent_branch) =
-        resolve_branch_for_agent(forge, repo_info, &requested_branch, &agent_name)?;
+    let (actual_branch, branch_info) = resolve_branch_for_agent(
+        forge,
+        repo_info,
+        &requested_branch,
+        base_branch,
+        &agent_name,
+    )?;
 
     // Create a worktree for this agent
     let worktree_path = create_agent_worktree(forge, repo_info, &agent_name, &actual_branch)?;
@@ -82,12 +94,7 @@ pub fn spawn_agent(
     };
 
     let mut result = SpawnResult::new(agent);
-    if created_agent_branch {
-        result.created_branch = Some(format!(
-            "Created new branch because '{}' already has a worktree",
-            requested_branch
-        ));
-    }
+    result.created_branch = branch_info;
 
     Ok(result)
 }
@@ -158,18 +165,74 @@ fn create_agent_branch(
     Ok(agent_branch)
 }
 
-/// Resolve the branch to use for the agent, creating a new one if needed
+/// Check if a branch exists in the repository
+fn branch_exists(repo_path: &std::path::Path, branch: &str) -> Result<bool> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("rev-parse")
+        .arg("--verify")
+        .arg(format!("refs/heads/{}", branch))
+        .output()
+        .context("Failed to check branch existence")?;
+
+    Ok(output.status.success())
+}
+
+/// Create a new branch from a base branch
+fn create_branch(repo_path: &std::path::Path, branch: &str, base_branch: &str) -> Result<()> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("branch")
+        .arg(branch)
+        .arg(base_branch)
+        .output()
+        .context("Failed to create branch")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!(
+            "Failed to create branch '{}' from '{}': {}",
+            branch,
+            base_branch,
+            stderr
+        ));
+    }
+
+    Ok(())
+}
+
+/// Resolve the branch to use for the agent, creating new branches if needed
 ///
-/// Returns (actual_branch, created_new_branch)
+/// Returns (actual_branch, info_message)
 fn resolve_branch_for_agent(
     forge: &Forge,
     repo_info: &RepoInfo,
     requested_branch: &str,
+    base_branch: &str,
     agent_name: &str,
-) -> Result<(String, bool)> {
+) -> Result<(String, Option<String>)> {
     let repo_path = forge.repos_dir().join(&repo_info.dir_name);
 
-    // Check if the requested branch already has a worktree
+    // Check if the requested branch exists
+    let branch_already_exists = branch_exists(&repo_path, requested_branch)?;
+
+    if !branch_already_exists {
+        // Branch doesn't exist - create it from base_branch
+        eprintln!(
+            "Creating new branch '{}' from '{}'.",
+            requested_branch, base_branch
+        );
+        create_branch(&repo_path, requested_branch, base_branch)?;
+        let info = format!(
+            "Created new branch '{}' from '{}'",
+            requested_branch, base_branch
+        );
+        return Ok((requested_branch.to_string(), Some(info)));
+    }
+
+    // Branch exists - check if it already has a worktree
     if branch_has_worktree(&repo_path, requested_branch)? {
         // Branch already has a worktree - create an agent-specific branch
         eprintln!(
@@ -177,11 +240,15 @@ fn resolve_branch_for_agent(
             requested_branch, agent_name
         );
         let agent_branch = create_agent_branch(&repo_path, agent_name, requested_branch)?;
-        Ok((agent_branch, true))
-    } else {
-        // Branch is available, use it directly
-        Ok((requested_branch.to_string(), false))
+        let info = format!(
+            "Created agent branch 'agent/{}' because '{}' already has a worktree",
+            agent_name, requested_branch
+        );
+        return Ok((agent_branch, Some(info)));
     }
+
+    // Branch exists and is available
+    Ok((requested_branch.to_string(), None))
 }
 
 /// Create a worktree for the agent

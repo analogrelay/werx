@@ -426,8 +426,8 @@ pub fn fuzzy_select_repository(forge: &Forge) -> Result<Option<RepoInfo>> {
     Ok(None)
 }
 
-/// Prompt the user for a new branch name
-pub fn prompt_branch_name(base_branch: &str) -> Result<String> {
+/// Prompt the user for a new branch name, with option to change base branch
+pub fn prompt_branch_name(forge: &Forge, repo_info: &RepoInfo) -> Result<(String, String)> {
     // Check if we're in an interactive terminal
     if !std::io::stdin().is_terminal() {
         return Err(anyhow!(
@@ -436,23 +436,172 @@ pub fn prompt_branch_name(base_branch: &str) -> Result<String> {
         ));
     }
 
-    println!();
-    println!(
-        "No branch specified. Creating a new branch based on '{}'.",
-        base_branch
-    );
-    println!();
+    let default_base = repo_info.default_branch.as_deref().unwrap_or("main");
 
-    let name: String = Input::with_theme(&ColorfulTheme::default())
-        .with_prompt("New branch name")
-        .interact_text()?;
+    let mut base_branch = default_base.to_string();
 
-    let name = name.trim().to_string();
-    if name.is_empty() {
-        return Err(anyhow!("Branch name cannot be empty"));
+    loop {
+        println!();
+        println!(
+            "Creating a new branch based on '{}'. Press Tab to change base branch.",
+            base_branch
+        );
+
+        // Use a custom prompt that can detect Tab
+        match prompt_branch_name_with_tab_handler(&base_branch)? {
+            BranchPromptResult::BranchName(name) => {
+                return Ok((name, base_branch));
+            }
+            BranchPromptResult::ChangeBase => {
+                // Show branch selector
+                if let Some(new_base) = select_branch(forge, repo_info)? {
+                    base_branch = new_base;
+                }
+                // Loop back to prompt for branch name
+            }
+        }
+    }
+}
+
+/// Result from the branch name prompt
+enum BranchPromptResult {
+    /// User entered a branch name
+    BranchName(String),
+    /// User wants to change the base branch
+    ChangeBase,
+}
+
+/// Prompt for branch name, detecting Tab key to change base
+fn prompt_branch_name_with_tab_handler(_base_branch: &str) -> Result<BranchPromptResult> {
+    use crossterm::{
+        cursor,
+        event::{self, Event, KeyCode, KeyModifiers},
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode},
+    };
+    use std::io::{stdout, Write};
+
+    let theme = ColorfulTheme::default();
+
+    print!("{} New branch name: ", theme.prompt_prefix);
+    stdout().flush()?;
+
+    enable_raw_mode()?;
+
+    let mut input = String::new();
+
+    loop {
+        if event::poll(std::time::Duration::from_millis(100))? {
+            if let Event::Key(key_event) = event::read()? {
+                match key_event.code {
+                    KeyCode::Tab => {
+                        disable_raw_mode()?;
+                        println!();
+                        return Ok(BranchPromptResult::ChangeBase);
+                    }
+                    KeyCode::Enter => {
+                        disable_raw_mode()?;
+                        println!();
+                        let name = input.trim().to_string();
+                        if name.is_empty() {
+                            return Err(anyhow!("Branch name cannot be empty"));
+                        }
+                        return Ok(BranchPromptResult::BranchName(name));
+                    }
+                    KeyCode::Char(c) => {
+                        if key_event.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
+                            disable_raw_mode()?;
+                            return Err(anyhow!("Cancelled"));
+                        }
+                        input.push(c);
+                        print!("{}", c);
+                        stdout().flush()?;
+                    }
+                    KeyCode::Backspace => {
+                        if !input.is_empty() {
+                            input.pop();
+                            execute!(stdout(), cursor::MoveLeft(1))?;
+                            print!(" ");
+                            execute!(stdout(), cursor::MoveLeft(1))?;
+                            stdout().flush()?;
+                        }
+                    }
+                    KeyCode::Esc => {
+                        disable_raw_mode()?;
+                        return Err(anyhow!("Cancelled"));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+/// Select a branch from the repository using skim fuzzy finder
+fn select_branch(forge: &Forge, repo_info: &RepoInfo) -> Result<Option<String>> {
+    let repo_path = forge.repos_dir().join(&repo_info.dir_name);
+
+    // Get list of branches
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&repo_path)
+        .arg("branch")
+        .arg("-a")
+        .arg("--format=%(refname:short)")
+        .output()
+        .context("Failed to list branches")?;
+
+    if !output.status.success() {
+        return Err(anyhow!("Failed to list branches"));
     }
 
-    Ok(name)
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let branches: Vec<String> = stdout
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        // Clean up remote branch names (origin/main -> main)
+        .map(|s| {
+            if let Some(stripped) = s.strip_prefix("origin/") {
+                stripped.to_string()
+            } else {
+                s
+            }
+        })
+        // Remove duplicates
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    if branches.is_empty() {
+        return Err(anyhow!("No branches found in repository"));
+    }
+
+    // Create skim input
+    let item_reader = SkimItemReader::default();
+    let items_str = branches.join("\n");
+    let item_stream = Cursor::new(items_str);
+    let rx_item = item_reader.of_bufread(item_stream);
+
+    let options = SkimOptionsBuilder::default()
+        .height(Some("50%"))
+        .multi(false)
+        .prompt(Some("Select base branch: "))
+        .build()
+        .map_err(|e| anyhow!("Failed to build fuzzy finder options: {}", e))?;
+
+    let output = Skim::run_with(&options, Some(rx_item))
+        .ok_or_else(|| anyhow!("Fuzzy finder failed to run"))?;
+
+    if output.is_abort {
+        return Ok(None);
+    }
+
+    if let Some(selected) = output.selected_items.first() {
+        return Ok(Some(selected.text().to_string()));
+    }
+
+    Ok(None)
 }
 
 /// Generate workspace path in hierarchical format: <repo_name>/<workspace_name>
