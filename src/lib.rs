@@ -12,10 +12,26 @@ pub mod workspace;
 
 use std::path::PathBuf;
 
+pub use agent::{
+    attach_to_agent, detect_providers, find_agent, get_agent_status, get_default_provider,
+    kill_agent, list_agents, spawn_agent, Agent, AgentProvider, AgentStatus, AgentType,
+    SpawnOptions, SpawnResult,
+};
 pub use config::{Config, Protocol};
+pub use directive::emit_change_directory;
+pub use init::initialize_werx;
+pub use path::resolve_werx_path;
 pub use repo_spec::RepoSpec;
-pub use repos::{CreatedRepoInfo, RepoInfo};
-pub use workspace::{Workspace, WorkspaceStatus};
+pub use repos::{add_repo, create_repo, list_repos, remove_repo, CreatedRepoInfo, RepoInfo};
+pub use shell::cmd_shell_init;
+pub use validation::validate_werx_path;
+pub use workspace::{
+    check_workspace_status, confirm_workspace_removal, create_worktree, detect_current_workspace,
+    find_repository, fuzzy_select_repository, generate_workspace_path,
+    get_workspace_status_details, list_workspaces, prompt_branch_name, prompt_workspace_name,
+    remove_workspace, select_repository, select_workspace_with_query, Workspace, WorkspaceStatus,
+    WorkspaceStatusDetails,
+};
 
 /// Internal directory that contains all Werx metadata and repositories
 pub const WERX_DIR: &str = ".werx";

@@ -151,7 +151,7 @@ pub fn get_default_provider(
         }
         // If preferred type isn't available, return an error
         return Err(anyhow!(
-            "Requested agent '{}' is not available. Run 'forge agent providers' to see available agents.",
+            "Requested agent '{}' is not available. Run 'werx agent providers' to see available agents.",
             pref_type.id()
         ));
     }

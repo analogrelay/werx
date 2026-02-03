@@ -2,7 +2,15 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use werx::Werx;
+use werx::{
+    add_repo, attach_to_agent, check_workspace_status, cmd_shell_init, confirm_workspace_removal,
+    create_repo, create_worktree, detect_current_workspace, detect_providers,
+    emit_change_directory, find_agent, find_repository, fuzzy_select_repository,
+    get_default_provider, get_workspace_status_details, initialize_werx, kill_agent, list_agents,
+    list_repos, list_workspaces, prompt_branch_name, prompt_workspace_name, remove_repo,
+    remove_workspace, resolve_werx_path, select_repository, select_workspace_with_query,
+    spawn_agent, AgentType, SpawnOptions, Werx, WorkspaceStatusDetails,
+};
 
 /// Werx - Manage your code repositories and workspaces
 #[derive(Parser)]
