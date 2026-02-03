@@ -18,9 +18,11 @@
 
         rustToolchain = pkgs.rust-bin.stable.latest.default;
 
+        cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+
         werx = pkgs.rustPlatform.buildRustPackage {
           pname = "werx";
-          version = "0.1.0";
+          version = cargoToml.package.version;
 
           src = ./.;
 
