@@ -17,53 +17,53 @@ pub use repo_spec::RepoSpec;
 pub use repos::{CreatedRepoInfo, RepoInfo};
 pub use workspace::{Workspace, WorkspaceStatus};
 
-/// Internal directory that contains all Forge metadata and repositories
-pub const FORGE_DIR: &str = ".forge";
+/// Internal directory that contains all Werx metadata and repositories
+pub const WERX_DIR: &str = ".werx";
 
-/// Subdirectory within .forge/ for storing repository clones
+/// Subdirectory within .werx/ for storing repository clones
 pub const REPOS_SUBDIR: &str = "repos";
 
-/// Configuration file within .forge/ that stores settings and acts as Forge marker
-pub const FORGE_CONFIG: &str = "config.toml";
+/// Configuration file within .werx/ that stores settings and acts as Werx marker
+pub const WERX_CONFIG: &str = "config.toml";
 
-/// Result type for Forge operations
+/// Result type for Werx operations
 pub type Result<T> = anyhow::Result<T>;
 
-/// Represents a Forge location
+/// Represents a Werx location
 #[derive(Debug, Clone)]
-pub struct Forge {
+pub struct Werx {
     pub root: PathBuf,
 }
 
-impl Forge {
-    /// Check if a directory is a Forge
+impl Werx {
+    /// Check if a directory is a Werx
     pub fn exists_at(path: &std::path::Path) -> bool {
-        let forge_dir = path.join(FORGE_DIR);
-        let config = forge_dir.join(FORGE_CONFIG);
-        forge_dir.exists() && config.exists()
+        let werx_dir = path.join(WERX_DIR);
+        let config = werx_dir.join(WERX_CONFIG);
+        werx_dir.exists() && config.exists()
     }
 
-    /// Get the .forge directory
-    pub fn forge_dir(&self) -> PathBuf {
-        self.root.join(FORGE_DIR)
+    /// Get the .werx directory
+    pub fn werx_dir(&self) -> PathBuf {
+        self.root.join(WERX_DIR)
     }
 
-    /// Get the repos directory (inside .forge/)
+    /// Get the repos directory (inside .werx/)
     pub fn repos_dir(&self) -> PathBuf {
-        self.forge_dir().join(REPOS_SUBDIR)
+        self.werx_dir().join(REPOS_SUBDIR)
     }
 
-    /// Get the config file path (inside .forge/)
+    /// Get the config file path (inside .werx/)
     pub fn config_file(&self) -> PathBuf {
-        self.forge_dir().join(FORGE_CONFIG)
+        self.werx_dir().join(WERX_CONFIG)
     }
 
-    /// Load the Forge configuration
+    /// Load the Werx configuration
     pub fn load_config(&self) -> Result<Config> {
         Config::load(&self.config_file())
     }
 
-    /// Save the Forge configuration
+    /// Save the Werx configuration
     pub fn save_config(&self, config: &Config) -> Result<()> {
         config.save(&self.config_file())
     }

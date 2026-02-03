@@ -2,31 +2,31 @@ use anyhow::{Context, Result};
 use std::env;
 use std::path::PathBuf;
 
-/// Environment variable for custom Forge location
-const FORGE_DIR_ENV: &str = "FORGE_DIR";
+/// Environment variable for custom Werx location
+const WERX_DIR_ENV: &str = "WERX_DIR";
 
-/// Default Forge location relative to home directory
-const DEFAULT_FORGE_DIR: &str = "forge";
+/// Default Werx location relative to home directory
+const DEFAULT_WERX_DIR: &str = "werx";
 
-/// Resolve the Forge path based on priority: CLI arg > env var > default
+/// Resolve the Werx path based on priority: CLI arg > env var > default
 ///
 /// Priority order:
 /// 1. Command-line argument (if provided)
-/// 2. FORGE_DIR environment variable
-/// 3. Default location: ~/forge
-pub fn resolve_forge_path(cli_path: Option<PathBuf>) -> Result<PathBuf> {
+/// 2. WERX_DIR environment variable
+/// 3. Default location: ~/werx
+pub fn resolve_werx_path(cli_path: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(path) = cli_path {
         return expand_path(&path);
     }
 
-    if let Ok(env_path) = env::var(FORGE_DIR_ENV) {
+    if let Ok(env_path) = env::var(WERX_DIR_ENV) {
         return expand_path(&PathBuf::from(env_path));
     }
 
-    // Default: ~/forge
+    // Default: ~/werx
     let home = dirs::home_dir().context("Could not determine home directory")?;
 
-    Ok(home.join(DEFAULT_FORGE_DIR))
+    Ok(home.join(DEFAULT_WERX_DIR))
 }
 
 /// Expand tilde (~) in paths to home directory
@@ -54,37 +54,37 @@ mod tests {
     #[test]
     fn test_cli_path_overrides_all() {
         unsafe {
-            env::set_var(FORGE_DIR_ENV, "/env/path");
+            env::set_var(WERX_DIR_ENV, "/env/path");
         }
         let result =
-            resolve_forge_path(Some(PathBuf::from("/cli/path"))).expect("Should resolve CLI path");
+            resolve_werx_path(Some(PathBuf::from("/cli/path"))).expect("Should resolve CLI path");
         assert_eq!(result, PathBuf::from("/cli/path"));
         unsafe {
-            env::remove_var(FORGE_DIR_ENV);
+            env::remove_var(WERX_DIR_ENV);
         }
     }
 
     #[test]
     fn test_env_var_overrides_default() {
         unsafe {
-            env::set_var(FORGE_DIR_ENV, "/env/path");
+            env::set_var(WERX_DIR_ENV, "/env/path");
         }
-        let result = resolve_forge_path(None).expect("Should resolve env var path");
+        let result = resolve_werx_path(None).expect("Should resolve env var path");
         assert_eq!(result, PathBuf::from("/env/path"));
         unsafe {
-            env::remove_var(FORGE_DIR_ENV);
+            env::remove_var(WERX_DIR_ENV);
         }
     }
 
     #[test]
     fn test_default_path() {
         unsafe {
-            env::remove_var(FORGE_DIR_ENV);
+            env::remove_var(WERX_DIR_ENV);
         }
-        let result = resolve_forge_path(None).expect("Should resolve default path");
+        let result = resolve_werx_path(None).expect("Should resolve default path");
         let expected = dirs::home_dir()
             .expect("Should have home dir")
-            .join(DEFAULT_FORGE_DIR);
+            .join(DEFAULT_WERX_DIR);
         assert_eq!(result, expected);
     }
 

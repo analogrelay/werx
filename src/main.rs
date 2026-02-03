@@ -2,26 +2,11 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use forge::agent::{
-    attach_to_agent, detect_providers, find_agent, get_default_provider, kill_agent, list_agents,
-    spawn_agent, AgentType, SpawnOptions,
-};
-use forge::directive::emit_change_directory;
-use forge::init::initialize_forge;
-use forge::path::resolve_forge_path;
-use forge::repos::{add_repo, create_repo, list_repos, remove_repo};
-use forge::shell::cmd_shell_init;
-use forge::workspace::{
-    check_workspace_status, confirm_workspace_removal, create_worktree, detect_current_workspace,
-    find_repository, fuzzy_select_repository, get_workspace_status_details, list_workspaces,
-    prompt_branch_name, prompt_workspace_name, remove_workspace, select_repository,
-    select_workspace_with_query, WorkspaceStatusDetails,
-};
-use forge::Forge;
+use werx::Werx;
 
-/// Forge - Manage your code repositories and workspaces
+/// Werx - Manage your code repositories and workspaces
 #[derive(Parser)]
-#[command(name = "forge")]
+#[command(name = "werx")]
 #[command(about = "Manage your code repositories and workspaces", long_about = None)]
 #[command(version)]
 struct Cli {
@@ -31,14 +16,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize a new Forge
-    #[command(about = "Initialize a new Forge at the specified location")]
+    /// Initialize a new Werx
+    #[command(about = "Initialize a new Werx at the specified location")]
     Init {
-        /// Path where the Forge should be created (defaults to ~/forge or $FORGE_DIR)
+        /// Path where the Werx should be created (defaults to ~/werx or $WERX_DIR)
         #[arg(value_name = "PATH")]
         path: Option<PathBuf>,
 
-        /// Force re-initialization of an existing Forge
+        /// Force re-initialization of an existing Werx
         #[arg(short, long)]
         force: bool,
 
@@ -47,8 +32,8 @@ enum Commands {
         protocol: Option<String>,
     },
 
-    /// Add a repository to the Forge (alias for 'repos add')
-    #[command(about = "Add a repository to the Forge")]
+    /// Add a repository to the Werx (alias for 'repos add')
+    #[command(about = "Add a repository to the Werx")]
     Add {
         /// Repository specification (URL, provider:owner/repo, or owner/repo)
         #[arg(value_name = "REPO")]
@@ -63,13 +48,13 @@ enum Commands {
         repo: String,
     },
 
-    /// Manage repositories in the Forge
-    #[command(about = "Manage repositories in the Forge", subcommand)]
+    /// Manage repositories in the Werx
+    #[command(about = "Manage repositories in the Werx", subcommand)]
     Repos(ReposCommands),
 
-    /// Manage workspaces in the Forge
+    /// Manage workspaces in the Werx
     #[command(
-        about = "Manage workspaces in the Forge",
+        about = "Manage workspaces in the Werx",
         subcommand,
         alias = "wt",
         alias = "workspaces",
@@ -83,10 +68,10 @@ enum Commands {
         about = "Navigate to a workspace using fuzzy search",
         long_about = "Navigate to a workspace using fuzzy search.\n\n\
                       Examples:\n  \
-                      forge go              # Launch interactive fuzzy search\n  \
-                      forge go feature      # Pre-fill search with 'feature'\n  \
-                      forge go repo/main    # Direct navigation if exact match\n\n\
-                      Note: Requires shell integration. Run 'forge shell init --help' for setup."
+                      werx go              # Launch interactive fuzzy search\n  \
+                      werx go feature      # Pre-fill search with 'feature'\n  \
+                      werx go repo/main    # Direct navigation if exact match\n\n\
+                      Note: Requires shell integration. Run 'werx shell init --help' for setup."
     )]
     Go {
         /// Optional query to pre-fill or match workspaces
@@ -98,9 +83,9 @@ enum Commands {
     #[command(
         about = "Shell integration commands",
         long_about = "Shell integration commands for enabling directory navigation.\n\n\
-                      To enable 'forge go' to change your shell's directory, add to your shell config:\n\n  \
-                      Bash: eval \"$(forge shell init bash)\"  (add to ~/.bashrc)\n  \
-                      Zsh:  eval \"$(forge shell init zsh)\"   (add to ~/.zshrc)",
+                      To enable 'werx go' to change your shell's directory, add to your shell config:\n\n  \
+                      Bash: eval \"$(werx shell init bash)\"  (add to ~/.bashrc)\n  \
+                      Zsh:  eval \"$(werx shell init zsh)\"   (add to ~/.zshrc)",
         subcommand
     )]
     Shell(ShellCommands),
@@ -118,8 +103,8 @@ enum ShellCommands {
         long_about = "Output shell initialization code for the specified shell.\n\n\
                       Supported shells: bash, zsh\n\n\
                       Examples:\n  \
-                      eval \"$(forge shell init bash)\"  # Add to ~/.bashrc\n  \
-                      eval \"$(forge shell init zsh)\"   # Add to ~/.zshrc"
+                      eval \"$(werx shell init bash)\"  # Add to ~/.bashrc\n  \
+                      eval \"$(werx shell init zsh)\"   # Add to ~/.zshrc"
     )]
     Init {
         /// Shell type (bash or zsh)
@@ -138,10 +123,10 @@ enum AgentCommands {
                       If no repository is specified, you'll be prompted to select one.\n\
                       If no branch is specified, you'll be prompted to create a new branch.\n\n\
                       Examples:\n  \
-                      forge agent spawn                           # Interactive mode\n  \
-                      forge agent spawn owner/repo                # Prompts for branch name\n  \
-                      forge agent spawn owner/repo -b feature     # Use existing branch\n  \
-                      forge agent spawn --agent claude            # Use Claude instead of OpenCode"
+                      werx agent spawn                           # Interactive mode\n  \
+                      werx agent spawn owner/repo                # Prompts for branch name\n  \
+                      werx agent spawn owner/repo -b feature     # Use existing branch\n  \
+                      werx agent spawn --agent claude            # Use Claude instead of OpenCode"
     )]
     Spawn {
         /// Repository specification (optional, prompts if not provided)
@@ -212,8 +197,8 @@ enum AgentCommands {
 
 #[derive(Subcommand)]
 enum ReposCommands {
-    /// Add a repository to the Forge
-    #[command(about = "Add a repository to the Forge")]
+    /// Add a repository to the Werx
+    #[command(about = "Add a repository to the Werx")]
     Add {
         /// Repository specification (URL, provider:owner/repo, or owner/repo)
         #[arg(value_name = "REPO")]
@@ -228,16 +213,16 @@ enum ReposCommands {
         repo: String,
     },
 
-    /// List repositories in the Forge
-    #[command(about = "List all repositories in the Forge")]
+    /// List repositories in the Werx
+    #[command(about = "List all repositories in the Werx")]
     List {
         /// Output format (text or json)
         #[arg(long, value_name = "FORMAT", default_value = "text")]
         format: String,
     },
 
-    /// Remove a repository from the Forge
-    #[command(about = "Remove a repository from the Forge")]
+    /// Remove a repository from the Werx
+    #[command(about = "Remove a repository from the Werx")]
     Remove {
         /// Repository specification (URL, provider:owner/repo, or owner/repo)
         #[arg(value_name = "REPO")]
@@ -267,8 +252,8 @@ enum WorkspaceCommands {
         name: Option<String>,
     },
 
-    /// List all workspaces in the Forge
-    #[command(about = "List all workspaces in the Forge")]
+    /// List all workspaces in the Werx
+    #[command(about = "List all workspaces in the Werx")]
     List {
         /// Output format (text or json)
         #[arg(long, value_name = "FORMAT", default_value = "text")]
@@ -287,15 +272,15 @@ enum WorkspaceCommands {
         force: bool,
     },
 
-    /// Navigate to a workspace using fuzzy search (alias for 'forge go')
+    /// Navigate to a workspace using fuzzy search (alias for 'werx go')
     #[command(
-        about = "Navigate to a workspace using fuzzy search (alias for 'forge go')",
+        about = "Navigate to a workspace using fuzzy search (alias for 'werx go')",
         long_about = "Navigate to a workspace using fuzzy search.\n\n\
-                      This is an alias for 'forge go' that works from the workspace subcommand.\n\n\
+                      This is an alias for 'werx go' that works from the workspace subcommand.\n\n\
                       Examples:\n  \
-                      forge workspace go              # Launch interactive fuzzy search\n  \
-                      forge workspace go feature      # Pre-fill search with 'feature'\n\n\
-                      Note: Requires shell integration. Run 'forge shell init --help' for setup."
+                      werx workspace go              # Launch interactive fuzzy search\n  \
+                      werx workspace go feature      # Pre-fill search with 'feature'\n\n\
+                      Note: Requires shell integration. Run 'werx shell init --help' for setup."
     )]
     Go {
         /// Optional query to pre-fill or match workspaces
@@ -304,7 +289,7 @@ enum WorkspaceCommands {
     },
 
     /// Show comprehensive workspace status
-    #[command(about = "Show workspace status across the Forge")]
+    #[command(about = "Show workspace status across the Werx")]
     Status {
         /// Filter to a specific repository
         #[arg(value_name = "REPO")]
@@ -438,9 +423,9 @@ fn main() -> Result<()> {
 
 fn cmd_init(cli_path: Option<PathBuf>, force: bool, protocol_str: Option<String>) -> Result<()> {
     // Resolve the target path
-    let path = resolve_forge_path(cli_path)?;
+    let path = resolve_werx_path(cli_path)?;
 
-    println!("Initializing Forge at: {}", path.display());
+    println!("Initializing Werx at: {}", path.display());
 
     // Parse protocol if provided
     let protocol = if let Some(p) = protocol_str {
@@ -449,24 +434,24 @@ fn cmd_init(cli_path: Option<PathBuf>, force: bool, protocol_str: Option<String>
         None
     };
 
-    // Initialize the Forge
-    let forge = initialize_forge(path, force, protocol)?;
+    // Initialize the Werx
+    let werx = initialize_werx(path, force, protocol)?;
 
     // Load config to show protocol preference
-    let config = forge.load_config()?;
+    let config = werx.load_config()?;
 
     // Success message
     println!();
-    println!("✓ Forge initialized successfully!");
+    println!("Werx initialized successfully!");
     println!();
-    println!("Location: {}", forge.root.display());
+    println!("Location: {}", werx.root.display());
     if let Some(prot) = config.protocol() {
         println!("Protocol: {}", prot);
     }
     println!();
     println!("Next steps:");
-    println!("  • Run 'forge add <repo-url>' to add a repository");
-    println!("  • Run 'forge repos list' to see your repositories");
+    println!("  - Run 'werx add <repo-url>' to add a repository");
+    println!("  - Run 'werx repos list' to see your repositories");
 
     // Suggest shell integration based on user's shell
     if let Ok(shell_var) = std::env::var("SHELL") {
@@ -479,10 +464,10 @@ fn cmd_init(cli_path: Option<PathBuf>, force: bool, protocol_str: Option<String>
             println!();
             println!("Shell integration (optional):");
             println!(
-                "  • Enable navigation with 'forge go' by adding to your .{}rc:",
+                "  - Enable navigation with 'werx go' by adding to your .{}rc:",
                 shell_name
             );
-            println!("    eval \"$(forge shell init {})\"", shell_name);
+            println!("    eval \"$(werx shell init {})\"", shell_name);
         }
     }
 
@@ -492,27 +477,27 @@ fn cmd_init(cli_path: Option<PathBuf>, force: bool, protocol_str: Option<String>
 }
 
 fn cmd_add(repo: String) -> Result<()> {
-    // Find the Forge
-    let forge = find_forge()?;
+    // Find the Werx
+    let werx = find_werx()?;
 
     // Add the repository
-    add_repo(&forge, &repo)?;
+    add_repo(&werx, &repo)?;
 
     Ok(())
 }
 
 fn cmd_create(repo: String) -> Result<()> {
-    // Find the Forge
-    let forge = find_forge()?;
+    // Find the Werx
+    let werx = find_werx()?;
 
     // Create the repository
-    let created_info = create_repo(&forge, &repo)?;
+    let created_info = create_repo(&werx, &repo)?;
 
     // Now create the worktree on main
     println!("Creating workspace on main branch...");
 
     // Build RepoInfo for the newly created repository
-    let repo_info = forge::RepoInfo {
+    let repo_info = werx::RepoInfo {
         dir_name: created_info.dir_name.clone(),
         clone_url: format!(
             "https://github.com/{}/{}.git",
@@ -529,13 +514,13 @@ fn cmd_create(repo: String) -> Result<()> {
     };
 
     // Create worktree on main
-    let workspace_path = create_worktree(&forge, &repo_info, "main", "main")?;
+    let workspace_path = create_worktree(&werx, &repo_info, "main", "main")?;
 
     println!();
-    println!("✓ Repository created successfully!");
+    println!("Repository created successfully!");
     println!();
     println!("  Repository: {}/{}", created_info.owner, created_info.name);
-    println!("  Location:   .forge/repos/{}", created_info.dir_name);
+    println!("  Location:   .werx/repos/{}", created_info.dir_name);
     println!("  Workspace:  {}/main", created_info.dir_name);
     println!("  Path:       {}", workspace_path.display());
     println!();
@@ -551,16 +536,16 @@ fn cmd_create(repo: String) -> Result<()> {
 }
 
 fn cmd_list(format: String) -> Result<()> {
-    // Find the Forge
-    let forge = find_forge()?;
+    // Find the Werx
+    let werx = find_werx()?;
 
     // List repositories
-    let repos = list_repos(&forge)?;
+    let repos = list_repos(&werx)?;
 
     if repos.is_empty() {
         println!("No repositories found.");
         println!();
-        println!("Run 'forge add <repo>' to add a repository.");
+        println!("Run 'werx add <repo>' to add a repository.");
         return Ok(());
     }
 
@@ -571,19 +556,19 @@ fn cmd_list(format: String) -> Result<()> {
         }
         "text" | _ => {
             println!();
-            println!("Repositories in Forge:");
+            println!("Repositories in Werx:");
             println!();
 
             for repo in &repos {
                 if repo.valid {
-                    println!("  • {}", repo.dir_name);
+                    println!("  - {}", repo.dir_name);
                     println!("    URL:    {}", repo.clone_url);
                     if let Some(branch) = &repo.default_branch {
                         println!("    Branch: {}", branch);
                     }
                     println!();
                 } else {
-                    println!("  • {} [INVALID]", repo.dir_name);
+                    println!("  - {} [INVALID]", repo.dir_name);
                     if let Some(error) = &repo.error {
                         println!("    Error: {}", error);
                     }
@@ -600,27 +585,27 @@ fn cmd_list(format: String) -> Result<()> {
 }
 
 fn cmd_remove(repo: String, force: bool) -> Result<()> {
-    // Find the Forge
-    let forge = find_forge()?;
+    // Find the Werx
+    let werx = find_werx()?;
 
     // Remove the repository
-    remove_repo(&forge, &repo, force)?;
+    remove_repo(&werx, &repo, force)?;
 
     Ok(())
 }
 
-/// Find the Forge at the default location
-fn find_forge() -> Result<Forge> {
-    let path = resolve_forge_path(None)?;
+/// Find the Werx at the default location
+fn find_werx() -> Result<Werx> {
+    let path = resolve_werx_path(None)?;
 
-    if !Forge::exists_at(&path) {
+    if !Werx::exists_at(&path) {
         return Err(anyhow::anyhow!(
-            "No Forge found at '{}'. Run 'forge init' first.",
+            "No Werx found at '{}'. Run 'werx init' first.",
             path.display()
         ));
     }
 
-    Ok(Forge { root: path })
+    Ok(Werx { root: path })
 }
 
 fn cmd_workspace_create(
@@ -628,17 +613,17 @@ fn cmd_workspace_create(
     branch: Option<String>,
     name: Option<String>,
 ) -> Result<()> {
-    // Find the Forge
-    let forge = find_forge()?;
+    // Find the Werx
+    let werx = find_werx()?;
 
     // Resolve repository
     let repo_info = if let Some(spec) = repo_spec {
         // Repository specified explicitly
-        find_repository(&forge, &spec)?
+        find_repository(&werx, &spec)?
     } else {
         // Try to detect current workspace
         let current_dir = std::env::current_dir()?;
-        if let Some(repo) = detect_current_workspace(&current_dir, &forge)? {
+        if let Some(repo) = detect_current_workspace(&current_dir, &werx)? {
             println!();
             println!(
                 "Using repository from current workspace: {}",
@@ -647,7 +632,7 @@ fn cmd_workspace_create(
             repo
         } else {
             // Interactive selector
-            select_repository(&forge)?
+            select_repository(&werx)?
         }
     };
 
@@ -659,7 +644,7 @@ fn cmd_workspace_create(
         repo_info.default_branch.clone().ok_or_else(|| {
             anyhow::anyhow!(
                 "Could not determine default branch for repository.\n\
-                 Please specify a branch explicitly: forge workspace create <repo> <branch>"
+                 Please specify a branch explicitly: werx workspace create <repo> <branch>"
             )
         })?
     };
@@ -676,10 +661,10 @@ fn cmd_workspace_create(
     println!("Creating workspace...");
 
     // Create the worktree
-    let workspace_path = create_worktree(&forge, &repo_info, &workspace_name, &branch_name)?;
+    let workspace_path = create_worktree(&werx, &repo_info, &workspace_name, &branch_name)?;
 
     println!();
-    println!("✓ Workspace created successfully!");
+    println!("Workspace created successfully!");
     println!();
     println!("  Repository: {}", repo_info.clone_url);
     println!("  Branch:     {}", branch_name);
@@ -694,16 +679,16 @@ fn cmd_workspace_create(
 }
 
 fn cmd_workspace_list(format: String) -> Result<()> {
-    // Find the Forge
-    let forge = find_forge()?;
+    // Find the Werx
+    let werx = find_werx()?;
 
     // List workspaces
-    let workspaces = list_workspaces(&forge)?;
+    let workspaces = list_workspaces(&werx)?;
 
     if workspaces.is_empty() {
         println!("No workspaces found.");
         println!();
-        println!("Run 'forge workspace create' to create a workspace.");
+        println!("Run 'werx workspace create' to create a workspace.");
         return Ok(());
     }
 
@@ -714,11 +699,11 @@ fn cmd_workspace_list(format: String) -> Result<()> {
         }
         "text" | _ => {
             println!();
-            println!("Workspaces in Forge:");
+            println!("Workspaces in Werx:");
             println!();
 
             for workspace in &workspaces {
-                println!("  • {}/{}", workspace.repository, workspace.name);
+                println!("  - {}/{}", workspace.repository, workspace.name);
                 println!("    Path:   {}", workspace.path.display());
                 if let Some(branch) = &workspace.branch {
                     println!("    Branch: {}", branch);
@@ -726,11 +711,11 @@ fn cmd_workspace_list(format: String) -> Result<()> {
 
                 // Show status if not clean
                 match workspace.status {
-                    forge::WorkspaceStatus::Clean => {}
-                    forge::WorkspaceStatus::Modified => println!("    Status: Modified"),
-                    forge::WorkspaceStatus::Untracked => println!("    Status: Untracked files"),
-                    forge::WorkspaceStatus::Locked => println!("    Status: Locked"),
-                    forge::WorkspaceStatus::Prunable => {
+                    werx::WorkspaceStatus::Clean => {}
+                    werx::WorkspaceStatus::Modified => println!("    Status: Modified"),
+                    werx::WorkspaceStatus::Untracked => println!("    Status: Untracked files"),
+                    werx::WorkspaceStatus::Locked => println!("    Status: Locked"),
+                    werx::WorkspaceStatus::Prunable => {
                         println!("    Status: Prunable (directory missing)")
                     }
                 }
@@ -747,14 +732,14 @@ fn cmd_workspace_list(format: String) -> Result<()> {
 }
 
 fn cmd_workspace_remove(workspace: String, force: bool) -> Result<()> {
-    // Find the Forge
-    let forge = find_forge()?;
+    // Find the Werx
+    let werx = find_werx()?;
 
     // Get all workspaces to find the one to remove
-    let workspaces = list_workspaces(&forge)?;
+    let workspaces = list_workspaces(&werx)?;
 
     // Find the workspace
-    let matching_workspaces: Vec<&forge::Workspace> = workspaces
+    let matching_workspaces: Vec<&werx::Workspace> = workspaces
         .iter()
         .filter(|w| {
             let full_name = format!("{}/{}", w.repository, w.name);
@@ -765,7 +750,7 @@ fn cmd_workspace_remove(workspace: String, force: bool) -> Result<()> {
     if matching_workspaces.is_empty() {
         return Err(anyhow::anyhow!(
             "Workspace not found: {}\n\n\
-             Run 'forge workspace list' to see available workspaces.",
+             Run 'werx workspace list' to see available workspaces.",
             workspace
         ));
     }
@@ -799,10 +784,10 @@ fn cmd_workspace_remove(workspace: String, force: bool) -> Result<()> {
     }
 
     // Remove the workspace
-    remove_workspace(&forge, &workspace)?;
+    remove_workspace(&werx, &workspace)?;
 
     println!();
-    println!("✓ Workspace removed successfully!");
+    println!("Workspace removed successfully!");
     println!();
     println!("  Workspace: {}/{}", ws.repository, ws.name);
     println!();
@@ -811,16 +796,16 @@ fn cmd_workspace_remove(workspace: String, force: bool) -> Result<()> {
 }
 
 fn cmd_go(query: Option<String>) -> Result<()> {
-    // Find the Forge
-    let forge = find_forge()?;
+    // Find the Werx
+    let werx = find_werx()?;
 
     // List all workspaces
-    let workspaces = list_workspaces(&forge)?;
+    let workspaces = list_workspaces(&werx)?;
 
     if workspaces.is_empty() {
         println!("No workspaces found.");
         println!();
-        println!("Run 'forge workspace create' to create a workspace.");
+        println!("Run 'werx workspace create' to create a workspace.");
         return Ok(());
     }
 
@@ -842,7 +827,7 @@ fn cmd_go(query: Option<String>) -> Result<()> {
 /// Aggregated workspace status for display
 #[derive(Debug)]
 struct WorkspaceWithStatus {
-    workspace: forge::Workspace,
+    workspace: werx::Workspace,
     details: WorkspaceStatusDetails,
 }
 
@@ -857,15 +842,15 @@ struct StatusSummary {
 }
 
 fn cmd_workspace_status(repo: Option<String>, format: String) -> Result<()> {
-    // Find the Forge
-    let forge = find_forge()?;
+    // Find the Werx
+    let werx = find_werx()?;
 
     // List workspaces (optionally filtered by repository)
-    let mut workspaces = list_workspaces(&forge)?;
+    let mut workspaces = list_workspaces(&werx)?;
 
     // Filter by repository if specified
     if let Some(ref repo_spec) = repo {
-        let repo_info = find_repository(&forge, repo_spec)?;
+        let repo_info = find_repository(&werx, repo_spec)?;
         workspaces.retain(|w| w.repository == repo_info.dir_name);
     }
 
@@ -874,13 +859,13 @@ fn cmd_workspace_status(repo: Option<String>, format: String) -> Result<()> {
             println!("No workspaces found for repository '{}'.", repo_spec);
             println!();
             println!(
-                "Run 'forge workspace create {}' to create a workspace.",
+                "Run 'werx workspace create {}' to create a workspace.",
                 repo_spec
             );
         } else {
             println!("No workspaces found.");
             println!();
-            println!("Run 'forge workspace create' to create a workspace.");
+            println!("Run 'werx workspace create' to create a workspace.");
         }
         return Ok(());
     }
@@ -888,7 +873,7 @@ fn cmd_workspace_status(repo: Option<String>, format: String) -> Result<()> {
     // Gather status for all workspaces
     let mut workspace_statuses: Vec<WorkspaceWithStatus> = Vec::new();
     for workspace in workspaces {
-        let details = get_workspace_status_details(&workspace, &forge)?;
+        let details = get_workspace_status_details(&workspace, &werx)?;
         workspace_statuses.push(WorkspaceWithStatus { workspace, details });
     }
 
@@ -938,7 +923,7 @@ fn print_status_text(
     if let Some(repo) = repo_filter {
         println!("Workspace Status for '{}'", repo);
     } else {
-        println!("Workspace Status for Forge");
+        println!("Workspace Status for Werx");
     }
     println!();
 
@@ -1116,15 +1101,15 @@ fn cmd_workspace_check(
     merged: bool,
     format: String,
 ) -> Result<()> {
-    // Find the Forge
-    let forge = find_forge()?;
+    // Find the Werx
+    let werx = find_werx()?;
 
     // List workspaces (optionally filtered by repository)
-    let mut workspaces = list_workspaces(&forge)?;
+    let mut workspaces = list_workspaces(&werx)?;
 
     // Filter by repository if specified
     if let Some(ref repo_spec) = repo {
-        let repo_info = find_repository(&forge, repo_spec)?;
+        let repo_info = find_repository(&werx, repo_spec)?;
         workspaces.retain(|w| w.repository == repo_info.dir_name);
     }
 
@@ -1133,13 +1118,13 @@ fn cmd_workspace_check(
             println!("No workspaces found for repository '{}'.", repo_spec);
             println!();
             println!(
-                "Run 'forge workspace create {}' to create a workspace.",
+                "Run 'werx workspace create {}' to create a workspace.",
                 repo_spec
             );
         } else {
             println!("No workspaces found.");
             println!();
-            println!("Run 'forge workspace create' to create a workspace.");
+            println!("Run 'werx workspace create' to create a workspace.");
         }
         return Ok(());
     }
@@ -1153,7 +1138,7 @@ fn cmd_workspace_check(
     // Gather status for all workspaces
     let mut workspace_statuses: Vec<WorkspaceWithStatus> = Vec::new();
     for workspace in workspaces {
-        let details = get_workspace_status_details(&workspace, &forge)?;
+        let details = get_workspace_status_details(&workspace, &werx)?;
         workspace_statuses.push(WorkspaceWithStatus { workspace, details });
     }
 
@@ -1343,16 +1328,16 @@ fn cmd_agent_spawn(
     prompt: Option<String>,
     edit_prompt: bool,
 ) -> Result<()> {
-    // Find the Forge
-    let forge = find_forge()?;
+    // Find the Werx
+    let werx = find_werx()?;
 
     // Resolve repository
     let repo_info = if let Some(spec) = repo_spec {
-        find_repository(&forge, &spec)?
+        find_repository(&werx, &spec)?
     } else {
         // Try to detect current workspace first
         let current_dir = std::env::current_dir()?;
-        if let Some(repo) = detect_current_workspace(&current_dir, &forge)? {
+        if let Some(repo) = detect_current_workspace(&current_dir, &werx)? {
             println!();
             println!(
                 "Using repository from current workspace: {}",
@@ -1361,7 +1346,7 @@ fn cmd_agent_spawn(
             repo
         } else {
             // Interactive fuzzy selector
-            match fuzzy_select_repository(&forge)? {
+            match fuzzy_select_repository(&werx)? {
                 Some(repo) => repo,
                 None => {
                     println!("Cancelled.");
@@ -1383,7 +1368,7 @@ fn cmd_agent_spawn(
         (Some(b), None)
     } else {
         // Prompt for a new branch name with option to change base branch
-        let (new_branch, base) = prompt_branch_name(&forge, &repo_info)?;
+        let (new_branch, base) = prompt_branch_name(&werx, &repo_info)?;
         (Some(new_branch), Some(base))
     };
 
@@ -1406,7 +1391,7 @@ fn cmd_agent_spawn(
     println!("Spawning agent for {}...", repo_info.dir_name);
 
     // Spawn the agent
-    let result = spawn_agent(&forge, &repo_info, options)?;
+    let result = spawn_agent(&werx, &repo_info, options)?;
 
     println!();
     println!("Agent spawned successfully!");
@@ -1431,13 +1416,13 @@ fn cmd_agent_spawn(
 }
 
 fn cmd_agent_list(format: String) -> Result<()> {
-    let forge = find_forge()?;
-    let agents = list_agents(&forge)?;
+    let werx = find_werx()?;
+    let agents = list_agents(&werx)?;
 
     if agents.is_empty() {
         println!("No agents are currently running.");
         println!();
-        println!("Run 'forge agent spawn' to start an agent.");
+        println!("Run 'werx agent spawn' to start an agent.");
         return Ok(());
     }
 
@@ -1453,10 +1438,10 @@ fn cmd_agent_list(format: String) -> Result<()> {
 
             for agent in &agents {
                 let status_indicator = match agent.status {
-                    forge::agent::AgentStatus::Running => "*",
-                    forge::agent::AgentStatus::Exited => " ",
-                    forge::agent::AgentStatus::Failed => "!",
-                    forge::agent::AgentStatus::Unknown => "?",
+                    werx::agent::AgentStatus::Running => "*",
+                    werx::agent::AgentStatus::Exited => " ",
+                    werx::agent::AgentStatus::Failed => "!",
+                    werx::agent::AgentStatus::Unknown => "?",
                 };
 
                 println!(
@@ -1472,8 +1457,8 @@ fn cmd_agent_list(format: String) -> Result<()> {
             println!("Total: {} agents", agents.len());
             println!();
             println!("Commands:");
-            println!("  forge agent attach [name]  - Attach to agent session");
-            println!("  forge agent kill [name]    - Kill an agent");
+            println!("  werx agent attach [name]  - Attach to agent session");
+            println!("  werx agent kill [name]    - Kill an agent");
             println!();
         }
     }
@@ -1482,13 +1467,13 @@ fn cmd_agent_list(format: String) -> Result<()> {
 }
 
 fn cmd_agent_status(agent_name: Option<String>, format: String) -> Result<()> {
-    let forge = find_forge()?;
+    let werx = find_werx()?;
 
     let agents = if let Some(name) = agent_name {
-        let agent = find_agent(&forge, &name)?;
+        let agent = find_agent(&werx, &name)?;
         vec![agent]
     } else {
-        list_agents(&forge)?
+        list_agents(&werx)?
     };
 
     if agents.is_empty() {
@@ -1521,14 +1506,14 @@ fn cmd_agent_status(agent_name: Option<String>, format: String) -> Result<()> {
 }
 
 fn cmd_agent_attach(agent_name: Option<String>) -> Result<()> {
-    let forge = find_forge()?;
+    let werx = find_werx()?;
 
     // If no agent specified and multiple exist, show interactive selector
     let agent_to_attach = if agent_name.is_none() {
-        let agents = list_agents(&forge)?;
+        let agents = list_agents(&werx)?;
         if agents.is_empty() {
             return Err(anyhow::anyhow!(
-                "No agents are currently running.\n\nRun 'forge agent spawn' to start an agent."
+                "No agents are currently running.\n\nRun 'werx agent spawn' to start an agent."
             ));
         }
         if agents.len() == 1 {
@@ -1551,7 +1536,7 @@ fn cmd_agent_attach(agent_name: Option<String>) -> Result<()> {
         } else {
             return Err(anyhow::anyhow!(
                 "Multiple agents running. Please specify which agent to attach to.\n\n\
-                 Run 'forge agent list' to see running agents."
+                 Run 'werx agent list' to see running agents."
             ));
         }
     } else {
@@ -1563,13 +1548,13 @@ fn cmd_agent_attach(agent_name: Option<String>) -> Result<()> {
 }
 
 fn cmd_agent_kill(agent_name: Option<String>, cleanup: bool) -> Result<()> {
-    let forge = find_forge()?;
+    let werx = find_werx()?;
 
     // If no agent specified, show interactive selector or error
     let agent_to_kill = if let Some(name) = agent_name {
         name
     } else {
-        let agents = list_agents(&forge)?;
+        let agents = list_agents(&werx)?;
         if agents.is_empty() {
             return Err(anyhow::anyhow!("No agents are currently running."));
         }
@@ -1593,18 +1578,18 @@ fn cmd_agent_kill(agent_name: Option<String>, cleanup: bool) -> Result<()> {
         } else {
             return Err(anyhow::anyhow!(
                 "Multiple agents running. Please specify which agent to kill.\n\n\
-                 Run 'forge agent list' to see running agents."
+                 Run 'werx agent list' to see running agents."
             ));
         }
     };
 
     // Get agent info before killing
-    let agent = find_agent(&forge, &agent_to_kill)?;
+    let agent = find_agent(&werx, &agent_to_kill)?;
 
     println!();
     println!("Killing agent '{}'...", agent.name);
 
-    let session_closed = kill_agent(&forge, &agent.name, cleanup)?;
+    let session_closed = kill_agent(&werx, &agent.name, cleanup)?;
 
     println!();
     println!("Agent '{}' terminated.", agent.name);
@@ -1616,7 +1601,7 @@ fn cmd_agent_kill(agent_name: Option<String>, cleanup: bool) -> Result<()> {
         println!();
         println!("To remove the worktree later:");
         println!(
-            "  forge workspace remove {}/{}",
+            "  werx workspace remove {}/{}",
             agent.repository, agent.name
         );
     }
@@ -1691,7 +1676,7 @@ fn get_prompt_from_editor() -> Result<String> {
 
     // Create a temp file
     let temp_dir = std::env::temp_dir();
-    let temp_file = temp_dir.join("forge-agent-prompt.txt");
+    let temp_file = temp_dir.join("werx-agent-prompt.txt");
 
     // Write a placeholder
     std::fs::write(
