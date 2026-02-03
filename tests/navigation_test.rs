@@ -1,16 +1,12 @@
-use std::process::Command;
-
 mod common;
 
-use common::{assert_success, run_werx};
-use tempfile::TempDir;
+use common::{TestContext, assert_success};
 
 #[test]
 fn test_shell_init_bash_outputs_valid_code() {
-    let output = Command::new("cargo")
-        .args(&["run", "--", "shell", "init", "bash"])
-        .output()
-        .expect("Failed to execute werx shell init bash");
+    let ctx = TestContext::new();
+
+    let output = ctx.run_werx(&["shell", "init", "bash"], &[]);
 
     assert!(output.status.success());
 
@@ -23,10 +19,9 @@ fn test_shell_init_bash_outputs_valid_code() {
 
 #[test]
 fn test_shell_init_zsh_outputs_valid_code() {
-    let output = Command::new("cargo")
-        .args(&["run", "--", "shell", "init", "zsh"])
-        .output()
-        .expect("Failed to execute werx shell init zsh");
+    let ctx = TestContext::new();
+
+    let output = ctx.run_werx(&["shell", "init", "zsh"], &[]);
 
     assert!(output.status.success());
 
@@ -39,10 +34,9 @@ fn test_shell_init_zsh_outputs_valid_code() {
 
 #[test]
 fn test_shell_init_unsupported_shell() {
-    let output = Command::new("cargo")
-        .args(&["run", "--", "shell", "init", "fish"])
-        .output()
-        .expect("Failed to execute werx shell init fish");
+    let ctx = TestContext::new();
+
+    let output = ctx.run_werx(&["shell", "init", "fish"], &[]);
 
     assert!(!output.status.success());
 
@@ -56,27 +50,15 @@ fn test_shell_init_unsupported_shell() {
 
 #[test]
 fn test_go_with_exact_match() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("go-exact-werx");
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
-    // Initialize werx and create a repository (creates main workspace)
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
-
-    let create_output = run_werx(
-        &["create", "navtest/myrepo"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let create_output = ctx.run_werx(&["create", "navtest/myrepo"], &[]);
     assert_success(&create_output);
 
     // Use 'werx go' with an exact query that matches
     // When running non-interactively (no TTY), if there's an exact match it should emit the directive
-    let output = run_werx(
-        &["go", "myrepo/main"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["go", "myrepo/main"], &[]);
 
     assert_success(&output);
 

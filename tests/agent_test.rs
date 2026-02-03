@@ -1,9 +1,8 @@
 mod common;
 
 use common::{
-    assert_failure, assert_success, cleanup_werx_agents_session, run_werx, tmux_available,
+    TestContext, assert_failure, assert_success, cleanup_werx_agents_session, tmux_available,
 };
-use tempfile::TempDir;
 
 // =============================================================================
 // Agent command tests
@@ -11,8 +10,10 @@ use tempfile::TempDir;
 
 #[test]
 fn test_agent_providers() {
+    let ctx = TestContext::new();
+
     // This command doesn't require a werx or tmux, it just lists available providers
-    let output = run_werx(&["agent", "providers"], &[]);
+    let output = ctx.run_werx(&["agent", "providers"], &[]);
 
     assert_success(&output);
 
@@ -35,23 +36,14 @@ fn test_agent_providers() {
 
 #[test]
 fn test_agent_list_empty() {
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("agent-empty-werx");
-
-    // Initialize werx
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
     // Make sure we don't have any agents running from previous tests
     cleanup_werx_agents_session();
 
     // List agents when none are running
-    let output = run_werx(
-        &["agent", "list"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["agent", "list"], &[]);
 
     assert_success(&output);
 
@@ -65,13 +57,9 @@ fn test_agent_list_empty() {
 
 #[test]
 fn test_agent_list_requires_werx() {
-    let temp_dir = TempDir::new().unwrap();
-    let non_werx_path = temp_dir.path().join("not-a-werx");
+    let ctx = TestContext::new();
 
-    let output = run_werx(
-        &["agent", "list"],
-        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["agent", "list"], &[]);
 
     assert_failure(&output);
 
@@ -81,13 +69,9 @@ fn test_agent_list_requires_werx() {
 
 #[test]
 fn test_agent_spawn_requires_werx() {
-    let temp_dir = TempDir::new().unwrap();
-    let non_werx_path = temp_dir.path().join("not-a-werx");
+    let ctx = TestContext::new();
 
-    let output = run_werx(
-        &["agent", "spawn", "owner/repo", "-b", "main"],
-        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["agent", "spawn", "owner/repo", "-b", "main"], &[]);
 
     assert_failure(&output);
 
@@ -97,13 +81,9 @@ fn test_agent_spawn_requires_werx() {
 
 #[test]
 fn test_agent_kill_requires_werx() {
-    let temp_dir = TempDir::new().unwrap();
-    let non_werx_path = temp_dir.path().join("not-a-werx");
+    let ctx = TestContext::new();
 
-    let output = run_werx(
-        &["agent", "kill", "some-agent"],
-        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["agent", "kill", "some-agent"], &[]);
 
     assert_failure(&output);
 
@@ -123,23 +103,12 @@ fn test_agent_spawn_requires_tmux() {
 
     if !tmux_available() {
         // If tmux is not available, verify that spawn fails with appropriate error
-        let temp_dir = TempDir::new().unwrap();
-        let werx_path = temp_dir.path().join("agent-no-tmux-werx");
+        let ctx = TestContext::new();
+        ctx.init_werx();
 
-        run_werx(
-            &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-            &[],
-        );
+        ctx.run_werx(&["create", "test/agentrepo"], &[]);
 
-        run_werx(
-            &["create", "test/agentrepo"],
-            &[("WERX_DIR", werx_path.to_str().unwrap())],
-        );
-
-        let output = run_werx(
-            &["agent", "spawn", "test/agentrepo", "-b", "main"],
-            &[("WERX_DIR", werx_path.to_str().unwrap())],
-        );
+        let output = ctx.run_werx(&["agent", "spawn", "test/agentrepo", "-b", "main"], &[]);
 
         assert_failure(&output);
 
@@ -165,26 +134,14 @@ fn test_agent_spawn_and_kill_workflow() {
     // Clean up any existing agent session from previous test runs
     cleanup_werx_agents_session();
 
-    let temp_dir = TempDir::new().unwrap();
-    let werx_path = temp_dir.path().join("agent-lifecycle-werx");
+    let ctx = TestContext::new();
+    ctx.init_werx();
 
-    // Initialize werx and create a repository
-    run_werx(
-        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
-        &[],
-    );
-
-    run_werx(
-        &["create", "lifecycle/testrepo"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    ctx.run_werx(&["create", "lifecycle/testrepo"], &[]);
 
     // Spawn an agent (using opencode by default, or whatever is available)
     // We need to specify a branch to avoid interactive prompts
-    let spawn_output = run_werx(
-        &["agent", "spawn", "lifecycle/testrepo", "-b", "main"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let spawn_output = ctx.run_werx(&["agent", "spawn", "lifecycle/testrepo", "-b", "main"], &[]);
 
     // The spawn might fail if no agent provider is available, which is fine
     // We want to test the workflow if it succeeds
@@ -224,10 +181,7 @@ fn test_agent_spawn_and_kill_workflow() {
         .expect("Should find agent name in output");
 
     // Verify agent appears in list
-    let list_output = run_werx(
-        &["agent", "list"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let list_output = ctx.run_werx(&["agent", "list"], &[]);
     assert_success(&list_output);
 
     let list_stdout = String::from_utf8_lossy(&list_output.stdout);
@@ -239,10 +193,7 @@ fn test_agent_spawn_and_kill_workflow() {
     );
 
     // Kill the agent
-    let kill_output = run_werx(
-        &["agent", "kill", agent_name],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let kill_output = ctx.run_werx(&["agent", "kill", agent_name], &[]);
     assert_success(&kill_output);
 
     let kill_stdout = String::from_utf8_lossy(&kill_output.stdout);
@@ -253,10 +204,7 @@ fn test_agent_spawn_and_kill_workflow() {
     );
 
     // Verify agent is no longer in list
-    let list_output2 = run_werx(
-        &["agent", "list"],
-        &[("WERX_DIR", werx_path.to_str().unwrap())],
-    );
+    let list_output2 = ctx.run_werx(&["agent", "list"], &[]);
 
     let list_stdout2 = String::from_utf8_lossy(&list_output2.stdout);
     assert!(
@@ -271,13 +219,9 @@ fn test_agent_spawn_and_kill_workflow() {
 
 #[test]
 fn test_agent_status_requires_werx() {
-    let temp_dir = TempDir::new().unwrap();
-    let non_werx_path = temp_dir.path().join("not-a-werx");
+    let ctx = TestContext::new();
 
-    let output = run_werx(
-        &["agent", "status"],
-        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
-    );
+    let output = ctx.run_werx(&["agent", "status"], &[]);
 
     assert_failure(&output);
 
