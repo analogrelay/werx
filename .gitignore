@@ -38,6 +38,9 @@ devenv.local.yaml
 .pre-commit-config.yaml
 
 
+# Generated source files
+/src/namedata.rs
+
 # Added by cargo
 
 /target

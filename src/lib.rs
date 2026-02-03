@@ -1,3 +1,5 @@
+mod namedata;
+
 pub mod config;
 pub mod directive;
 pub mod init;
