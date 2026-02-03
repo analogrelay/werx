@@ -13,8 +13,9 @@ use forge::repos::{add_repo, create_repo, list_repos, remove_repo};
 use forge::shell::cmd_shell_init;
 use forge::workspace::{
     check_workspace_status, confirm_workspace_removal, create_worktree, detect_current_workspace,
-    find_repository, get_workspace_status_details, list_workspaces, prompt_workspace_name,
-    remove_workspace, select_repository, select_workspace_with_query, WorkspaceStatusDetails,
+    find_repository, fuzzy_select_repository, get_workspace_status_details, list_workspaces,
+    prompt_branch_name, prompt_workspace_name, remove_workspace, select_repository,
+    select_workspace_with_query, WorkspaceStatusDetails,
 };
 use forge::Forge;
 
@@ -134,17 +135,20 @@ enum AgentCommands {
         about = "Spawn a new coding agent in an isolated worktree",
         long_about = "Spawn a new AI coding agent in an isolated git worktree.\n\n\
                       The agent runs in a tmux session for persistence and easy access.\n\n\
+                      If no repository is specified, you'll be prompted to select one.\n\
+                      If no branch is specified, you'll be prompted to create a new branch.\n\n\
                       Examples:\n  \
-                      forge agent spawn owner/repo              # Spawn on default branch\n  \
-                      forge agent spawn owner/repo --branch feature  # Spawn on specific branch\n  \
-                      forge agent spawn --agent claude          # Use Claude instead of OpenCode"
+                      forge agent spawn                           # Interactive mode\n  \
+                      forge agent spawn owner/repo                # Prompts for branch name\n  \
+                      forge agent spawn owner/repo -b feature     # Use existing branch\n  \
+                      forge agent spawn --agent claude            # Use Claude instead of OpenCode"
     )]
     Spawn {
-        /// Repository specification (optional if running from within a workspace)
+        /// Repository specification (optional, prompts if not provided)
         #[arg(value_name = "REPO")]
         repo: Option<String>,
 
-        /// Branch to checkout (defaults to repository's default branch)
+        /// Branch to checkout (prompts for new branch name if not specified)
         #[arg(short, long, value_name = "BRANCH")]
         branch: Option<String>,
 
@@ -1346,7 +1350,7 @@ fn cmd_agent_spawn(
     let repo_info = if let Some(spec) = repo_spec {
         find_repository(&forge, &spec)?
     } else {
-        // Try to detect current workspace
+        // Try to detect current workspace first
         let current_dir = std::env::current_dir()?;
         if let Some(repo) = detect_current_workspace(&current_dir, &forge)? {
             println!();
@@ -1356,8 +1360,14 @@ fn cmd_agent_spawn(
             );
             repo
         } else {
-            // Interactive selector
-            select_repository(&forge)?
+            // Interactive fuzzy selector
+            match fuzzy_select_repository(&forge)? {
+                Some(repo) => repo,
+                None => {
+                    println!("Cancelled.");
+                    return Ok(());
+                }
+            }
         }
     };
 
@@ -1366,6 +1376,18 @@ fn cmd_agent_spawn(
         Some(agent_str.parse::<AgentType>()?)
     } else {
         None
+    };
+
+    // Handle branch - if not specified, prompt for a new branch name
+    let final_branch = if let Some(b) = branch {
+        Some(b)
+    } else {
+        // Get the base branch (default branch of the repo)
+        let base_branch = repo_info.default_branch.as_deref().unwrap_or("main");
+
+        // Prompt for a new branch name
+        let new_branch = prompt_branch_name(base_branch)?;
+        Some(new_branch)
     };
 
     // Handle edit-prompt
@@ -1378,7 +1400,7 @@ fn cmd_agent_spawn(
     // Build spawn options
     let options = SpawnOptions {
         agent_type,
-        branch,
+        branch: final_branch,
         prompt: final_prompt,
     };
 

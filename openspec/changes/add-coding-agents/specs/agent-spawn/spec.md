@@ -45,14 +45,32 @@ The system SHALL provide a command to spawn a coding agent in an isolated worktr
 
 - **WHEN** user runs `forge agent spawn owner/repo`
 - **AND** no `--branch` flag is specified
-- **THEN** the worktree is created from the repository's default branch
+- **THEN** the system prompts for a new branch name
+- **AND** creates a new branch based on the repository's default branch
+- **AND** creates the worktree on the new branch
 
 #### Scenario: Spawn agent with context detection
 
 - **WHEN** user runs `forge agent spawn` from within an existing workspace
 - **AND** no repository argument is provided
 - **THEN** the system detects the repository from the current workspace
+- **AND** prompts for a new branch name
 - **AND** spawns an agent for that repository
+
+#### Scenario: Interactive repository selection
+
+- **WHEN** user runs `forge agent spawn` without a repository argument
+- **AND** not within an existing workspace
+- **THEN** the system presents a fuzzy-searchable list of repositories
+- **AND** the user can select a repository using skim
+- **AND** the user can cancel the selection
+
+#### Scenario: Interactive branch name prompt
+
+- **WHEN** user runs `forge agent spawn` without a branch argument
+- **THEN** the system prompts for a new branch name
+- **AND** displays the base branch (repository's default branch)
+- **AND** the user enters the name for the new branch
 
 #### Scenario: Spawn with specific agent type
 

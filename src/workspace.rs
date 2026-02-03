@@ -1,7 +1,7 @@
-use anyhow::{Context, Result, anyhow};
-use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
-use fuzzy_matcher::FuzzyMatcher;
+use anyhow::{anyhow, Context, Result};
+use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
 use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 use serde::Serialize;
 use skim::prelude::*;
 use std::fs;
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-use crate::{Forge, RepoInfo, RepoSpec, repos};
+use crate::{repos, Forge, RepoInfo, RepoSpec};
 
 /// Workspace information
 #[derive(Debug, Clone, Serialize)]
@@ -341,6 +341,120 @@ pub fn select_repository(forge: &Forge) -> Result<RepoInfo> {
     Ok(valid_repos[selection].clone())
 }
 
+/// Select a repository using fuzzy search with skim
+pub fn fuzzy_select_repository(forge: &Forge) -> Result<Option<RepoInfo>> {
+    // Check if we're in an interactive terminal
+    if !std::io::stdin().is_terminal() {
+        return Err(anyhow!(
+            "Interactive terminal required for fuzzy search.\n\
+             Please specify a repository explicitly."
+        ));
+    }
+
+    // Get all repositories
+    let repos = repos::list_repos(forge)?;
+
+    if repos.is_empty() {
+        return Err(anyhow!(
+            "No repositories found in Forge.\n\n\
+             Run 'forge add <repo>' to add a repository first."
+        ));
+    }
+
+    // Filter out invalid repositories
+    let valid_repos: Vec<RepoInfo> = repos.into_iter().filter(|r| r.valid).collect();
+
+    if valid_repos.is_empty() {
+        return Err(anyhow!(
+            "No valid repositories found in Forge.\n\n\
+             Run 'forge repos list' to see repository status."
+        ));
+    }
+
+    // Create display strings for each repo
+    let display_strings: Vec<String> = valid_repos
+        .iter()
+        .map(|r| {
+            if let Some(branch) = &r.default_branch {
+                format!("{} ({})", r.clone_url, branch)
+            } else {
+                r.clone_url.clone()
+            }
+        })
+        .collect();
+
+    // Create a string containing all items for skim to read
+    let item_reader = SkimItemReader::default();
+    let items_str = display_strings.join("\n");
+    let item_stream = Cursor::new(items_str);
+    let rx_item = item_reader.of_bufread(item_stream);
+
+    // Configure skim options
+    let options = SkimOptionsBuilder::default()
+        .height(Some("50%"))
+        .multi(false)
+        .prompt(Some("Select repository: "))
+        .build()
+        .map_err(|e| anyhow!("Failed to build fuzzy finder options: {}", e))?;
+
+    // Run skim
+    let output = Skim::run_with(&options, Some(rx_item))
+        .ok_or_else(|| anyhow!("Fuzzy finder failed to run"))?;
+
+    // Handle user cancellation
+    if output.is_abort {
+        return Ok(None);
+    }
+
+    // Get the selected item
+    if let Some(selected) = output.selected_items.first() {
+        let selected_text = selected.text();
+
+        // Find the matching repository
+        for repo in valid_repos {
+            let display = if let Some(branch) = &repo.default_branch {
+                format!("{} ({})", repo.clone_url, branch)
+            } else {
+                repo.clone_url.clone()
+            };
+            if display == selected_text.as_ref() {
+                return Ok(Some(repo));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+/// Prompt the user for a new branch name
+pub fn prompt_branch_name(base_branch: &str) -> Result<String> {
+    // Check if we're in an interactive terminal
+    if !std::io::stdin().is_terminal() {
+        return Err(anyhow!(
+            "Cannot prompt for branch name in non-interactive mode.\n\
+             Please specify a branch with --branch."
+        ));
+    }
+
+    println!();
+    println!(
+        "No branch specified. Creating a new branch based on '{}'.",
+        base_branch
+    );
+    println!();
+
+    let name: String = Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("New branch name")
+        .interact_text()?;
+
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(anyhow!("Branch name cannot be empty"));
+    }
+
+    Ok(name)
+}
+
 /// Generate workspace path in hierarchical format: <repo_name>/<workspace_name>
 pub fn generate_workspace_path(forge: &Forge, repo_name: &str, workspace_name: &str) -> PathBuf {
     forge.root.join(repo_name).join(workspace_name)
@@ -656,10 +770,7 @@ pub fn fuzzy_select_workspace(
         .iter()
         .map(|ws| {
             let display = format!("{}/{}", ws.repository, ws.name);
-            let branch_str = ws
-                .branch
-                .as_deref()
-                .unwrap_or("(detached)");
+            let branch_str = ws.branch.as_deref().unwrap_or("(detached)");
             let preview = format!("branch: {} | {}", branch_str, ws.path.display());
 
             Arc::new(WorkspaceItem {
@@ -715,10 +826,7 @@ pub fn fuzzy_select_workspace(
 }
 
 /// Find workspaces that match a given query using fuzzy matching
-pub fn find_workspace_matches<'a>(
-    workspaces: &'a [Workspace],
-    query: &str,
-) -> Vec<&'a Workspace> {
+pub fn find_workspace_matches<'a>(workspaces: &'a [Workspace], query: &str) -> Vec<&'a Workspace> {
     if query.is_empty() {
         return workspaces.iter().collect();
     }
@@ -731,8 +839,7 @@ pub fn find_workspace_matches<'a>(
         .filter(|ws| {
             let display = format!("{}/{}", ws.repository, ws.name).to_lowercase();
             // Use fuzzy matching, but also support substring matching
-            matcher.fuzzy_match(&display, &query_lower).is_some()
-                || display.contains(&query_lower)
+            matcher.fuzzy_match(&display, &query_lower).is_some() || display.contains(&query_lower)
         })
         .collect()
 }
@@ -758,10 +865,7 @@ pub fn select_workspace_with_query(
 
             // If no matches, return an error
             if matches.is_empty() {
-                return Err(anyhow!(
-                    "No workspaces match query: '{}'",
-                    q
-                ));
+                return Err(anyhow!("No workspaces match query: '{}'", q));
             }
 
             // Multiple matches - fall through to fuzzy search with pre-filled query
@@ -874,7 +978,10 @@ pub fn check_branch_merged(
 }
 
 /// Get comprehensive status for a workspace
-pub fn get_workspace_status_details(workspace: &Workspace, forge: &Forge) -> Result<WorkspaceStatusDetails> {
+pub fn get_workspace_status_details(
+    workspace: &Workspace,
+    forge: &Forge,
+) -> Result<WorkspaceStatusDetails> {
     let path = &workspace.path;
 
     // Check if workspace exists
@@ -1182,15 +1289,13 @@ branch refs/heads/other
 
     #[test]
     fn test_find_workspace_matches_none() {
-        let workspaces = vec![
-            Workspace {
-                name: "main".to_string(),
-                path: PathBuf::from("/tmp/forge/myrepo/main"),
-                repository: "myrepo".to_string(),
-                branch: Some("main".to_string()),
-                status: WorkspaceStatus::Clean,
-            },
-        ];
+        let workspaces = vec![Workspace {
+            name: "main".to_string(),
+            path: PathBuf::from("/tmp/forge/myrepo/main"),
+            repository: "myrepo".to_string(),
+            branch: Some("main".to_string()),
+            status: WorkspaceStatus::Clean,
+        }];
 
         let matches = find_workspace_matches(&workspaces, "nonexistent");
         assert_eq!(matches.len(), 0);
@@ -1198,15 +1303,13 @@ branch refs/heads/other
 
     #[test]
     fn test_find_workspace_matches_case_insensitive() {
-        let workspaces = vec![
-            Workspace {
-                name: "main".to_string(),
-                path: PathBuf::from("/tmp/forge/MyRepo/main"),
-                repository: "MyRepo".to_string(),
-                branch: Some("main".to_string()),
-                status: WorkspaceStatus::Clean,
-            },
-        ];
+        let workspaces = vec![Workspace {
+            name: "main".to_string(),
+            path: PathBuf::from("/tmp/forge/MyRepo/main"),
+            repository: "MyRepo".to_string(),
+            branch: Some("main".to_string()),
+            status: WorkspaceStatus::Clean,
+        }];
 
         let matches = find_workspace_matches(&workspaces, "myrepo");
         assert_eq!(matches.len(), 1);
