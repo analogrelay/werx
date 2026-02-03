@@ -1,25 +1,25 @@
 mod common;
 
-use common::{assert_failure, assert_success, run_forge};
+use common::{assert_failure, assert_success, run_werx};
 use tempfile::TempDir;
 
-// forge workspace list tests
+// werx workspace list tests
 
 #[test]
 fn test_workspace_list_empty() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("ws-empty-forge");
+    let werx_path = temp_dir.path().join("ws-empty-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
-        &[]
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
+        &[],
     );
 
     // List workspaces
-    let output = run_forge(
+    let output = run_werx(
         &["workspace", "list"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())]
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
 
     assert_success(&output);
@@ -31,18 +31,18 @@ fn test_workspace_list_empty() {
 #[test]
 fn test_workspace_list_json_format_empty() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("ws-json-forge");
+    let werx_path = temp_dir.path().join("ws-json-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
-        &[]
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
+        &[],
     );
 
     // List workspaces in JSON format (empty case returns text, not JSON)
-    let output = run_forge(
+    let output = run_werx(
         &["workspace", "list", "--format", "json"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())]
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
 
     assert_success(&output);
@@ -54,55 +54,62 @@ fn test_workspace_list_json_format_empty() {
 }
 
 #[test]
-fn test_workspace_list_requires_forge() {
+fn test_workspace_list_requires_werx() {
     let temp_dir = TempDir::new().unwrap();
-    let non_forge_path = temp_dir.path().join("not-a-forge");
+    let non_werx_path = temp_dir.path().join("not-a-werx");
 
-    let output = run_forge(
+    let output = run_werx(
         &["workspace", "list"],
-        &[("FORGE_DIR", non_forge_path.to_str().unwrap())]
+        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
     );
 
     assert_failure(&output);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("No Forge found") || stderr.contains("forge init"));
+    assert!(stderr.contains("No Werx found") || stderr.contains("werx init"));
 }
 
-// forge workspace create tests
+// werx workspace create tests
 
 #[test]
-fn test_workspace_create_requires_forge() {
+fn test_workspace_create_requires_werx() {
     let temp_dir = TempDir::new().unwrap();
-    let non_forge_path = temp_dir.path().join("not-a-forge");
+    let non_werx_path = temp_dir.path().join("not-a-werx");
 
-    let output = run_forge(
-        &["workspace", "create", "owner/repo", "main", "--name", "test"],
-        &[("FORGE_DIR", non_forge_path.to_str().unwrap())]
+    let output = run_werx(
+        &[
+            "workspace",
+            "create",
+            "owner/repo",
+            "main",
+            "--name",
+            "test",
+        ],
+        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
     );
 
     assert_failure(&output);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("No Forge found") || stderr.contains("forge init"));
+    assert!(stderr.contains("No Werx found") || stderr.contains("werx init"));
 }
 
-// forge workspace remove tests
+// werx workspace remove tests
 
 #[test]
-fn test_workspace_remove_requires_forge() {
+fn test_workspace_remove_requires_werx() {
     let temp_dir = TempDir::new().unwrap();
-    let non_forge_path = temp_dir.path().join("not-a-forge");
+    let non_werx_path = temp_dir.path().join("not-a-werx");
 
-    let output = run_forge(
+    let output = run_werx(
         &["workspace", "remove", "test", "--force"],
-        &[("FORGE_DIR", non_forge_path.to_str().unwrap())]
+        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
     );
 
     assert_failure(&output);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("No Forge found") || stderr.contains("forge init"));
+    assert!(stderr.contains("No Werx found") || stderr.contains("werx init"));
 }
 
 // Workspace alias tests
@@ -110,18 +117,18 @@ fn test_workspace_remove_requires_forge() {
 #[test]
 fn test_workspaces_alias() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("alias-forge");
+    let werx_path = temp_dir.path().join("alias-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
-        &[]
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
+        &[],
     );
 
     // Use 'workspaces' alias instead of 'workspace'
-    let output = run_forge(
+    let output = run_werx(
         &["workspaces", "list"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())]
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
 
     assert_success(&output);
@@ -130,57 +137,51 @@ fn test_workspaces_alias() {
 #[test]
 fn test_wt_alias() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("wt-alias-forge");
+    let werx_path = temp_dir.path().join("wt-alias-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
-        &[]
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
+        &[],
     );
 
     // Use 'wt' alias instead of 'workspace'
-    let output = run_forge(
+    let output = run_werx(
         &["wt", "list"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())]
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
 
     assert_success(&output);
 }
 
-// forge go tests
+// werx go tests
 
 #[test]
-fn test_go_requires_forge() {
+fn test_go_requires_werx() {
     let temp_dir = TempDir::new().unwrap();
-    let non_forge_path = temp_dir.path().join("not-a-forge");
+    let non_werx_path = temp_dir.path().join("not-a-werx");
 
-    let output = run_forge(
-        &["go"],
-        &[("FORGE_DIR", non_forge_path.to_str().unwrap())]
-    );
+    let output = run_werx(&["go"], &[("WERX_DIR", non_werx_path.to_str().unwrap())]);
 
     assert_failure(&output);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("No Forge found") || stderr.contains("forge init"));
+    assert!(stderr.contains("No Werx found") || stderr.contains("werx init"));
 }
 
 #[test]
-fn test_go_with_empty_forge() {
+fn test_go_with_empty_werx() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("empty-go-forge");
+    let werx_path = temp_dir.path().join("empty-go-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
-        &[]
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
+        &[],
     );
 
     // Try to go with no workspaces
-    let output = run_forge(
-        &["go"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())]
-    );
+    let output = run_werx(&["go"], &[("WERX_DIR", werx_path.to_str().unwrap())]);
 
     assert_success(&output);
 

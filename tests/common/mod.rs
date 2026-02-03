@@ -1,7 +1,7 @@
 use std::process::Command;
 
-/// Run a forge command with arguments and environment variables
-pub fn run_forge(args: &[&str], env: &[(&str, &str)]) -> std::process::Output {
+/// Run a werx command with arguments and environment variables
+pub fn run_werx(args: &[&str], env: &[(&str, &str)]) -> std::process::Output {
     let mut cmd = Command::new("cargo");
     cmd.args(&["run", "--"]);
     cmd.args(args);
@@ -10,7 +10,7 @@ pub fn run_forge(args: &[&str], env: &[(&str, &str)]) -> std::process::Output {
         cmd.env(key, value);
     }
 
-    cmd.output().expect("Failed to execute forge command")
+    cmd.output().expect("Failed to execute werx command")
 }
 
 /// Assert that a command succeeded

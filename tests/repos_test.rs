@@ -1,25 +1,25 @@
 mod common;
 
-use common::{assert_failure, assert_success, run_forge};
+use common::{assert_failure, assert_success, run_werx};
 use tempfile::TempDir;
 
-// forge repos list tests
+// werx repos list tests
 
 #[test]
 fn test_repos_list_empty() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("empty-forge");
+    let werx_path = temp_dir.path().join("empty-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
         &[],
     );
 
     // List repos
-    let output = run_forge(
+    let output = run_werx(
         &["repos", "list"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())],
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
 
     assert_success(&output);
@@ -31,18 +31,18 @@ fn test_repos_list_empty() {
 #[test]
 fn test_repos_list_json_format_empty() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("json-forge");
+    let werx_path = temp_dir.path().join("json-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
         &[],
     );
 
     // List repos in JSON format (empty case returns text, not JSON)
-    let output = run_forge(
+    let output = run_werx(
         &["repos", "list", "--format", "json"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())],
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
 
     assert_success(&output);
@@ -54,123 +54,123 @@ fn test_repos_list_json_format_empty() {
 }
 
 #[test]
-fn test_repos_list_requires_forge() {
+fn test_repos_list_requires_werx() {
     let temp_dir = TempDir::new().unwrap();
-    let non_forge_path = temp_dir.path().join("not-a-forge");
+    let non_werx_path = temp_dir.path().join("not-a-werx");
 
-    let output = run_forge(
+    let output = run_werx(
         &["repos", "list"],
-        &[("FORGE_DIR", non_forge_path.to_str().unwrap())],
+        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
     );
 
     assert_failure(&output);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("No Forge found") || stderr.contains("forge init"));
+    assert!(stderr.contains("No Werx found") || stderr.contains("werx init"));
 }
 
-// forge repos add tests
+// werx repos add tests
 
 #[test]
-fn test_add_repo_requires_forge() {
+fn test_add_repo_requires_werx() {
     let temp_dir = TempDir::new().unwrap();
-    let non_forge_path = temp_dir.path().join("not-a-forge");
+    let non_werx_path = temp_dir.path().join("not-a-werx");
 
-    let output = run_forge(
+    let output = run_werx(
         &["add", "owner/repo"],
-        &[("FORGE_DIR", non_forge_path.to_str().unwrap())],
+        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
     );
 
     assert_failure(&output);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("No Forge found") || stderr.contains("forge init"));
+    assert!(stderr.contains("No Werx found") || stderr.contains("werx init"));
 }
 
 #[test]
 fn test_repos_add_alias() {
     let temp_dir = TempDir::new().unwrap();
-    let non_forge_path = temp_dir.path().join("not-a-forge");
+    let non_werx_path = temp_dir.path().join("not-a-werx");
 
     // Test 'repos add' produces same error as 'add'
-    let output = run_forge(
+    let output = run_werx(
         &["repos", "add", "owner/repo"],
-        &[("FORGE_DIR", non_forge_path.to_str().unwrap())],
+        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
     );
 
     assert_failure(&output);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("No Forge found") || stderr.contains("forge init"));
+    assert!(stderr.contains("No Werx found") || stderr.contains("werx init"));
 }
 
-// forge repos remove tests
+// werx repos remove tests
 
 #[test]
-fn test_remove_repo_requires_forge() {
+fn test_remove_repo_requires_werx() {
     let temp_dir = TempDir::new().unwrap();
-    let non_forge_path = temp_dir.path().join("not-a-forge");
+    let non_werx_path = temp_dir.path().join("not-a-werx");
 
-    let output = run_forge(
+    let output = run_werx(
         &["repos", "remove", "owner/repo", "--force"],
-        &[("FORGE_DIR", non_forge_path.to_str().unwrap())],
+        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
     );
 
     assert_failure(&output);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("No Forge found") || stderr.contains("forge init"));
+    assert!(stderr.contains("No Werx found") || stderr.contains("werx init"));
 }
 
-// forge create tests
+// werx create tests
 
 #[test]
-fn test_create_repo_requires_forge() {
+fn test_create_repo_requires_werx() {
     let temp_dir = TempDir::new().unwrap();
-    let non_forge_path = temp_dir.path().join("not-a-forge");
+    let non_werx_path = temp_dir.path().join("not-a-werx");
 
-    let output = run_forge(
+    let output = run_werx(
         &["create", "owner/repo"],
-        &[("FORGE_DIR", non_forge_path.to_str().unwrap())],
+        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
     );
 
     assert_failure(&output);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("No Forge found") || stderr.contains("forge init"));
+    assert!(stderr.contains("No Werx found") || stderr.contains("werx init"));
 }
 
 #[test]
 fn test_repos_create_alias() {
     let temp_dir = TempDir::new().unwrap();
-    let non_forge_path = temp_dir.path().join("not-a-forge");
+    let non_werx_path = temp_dir.path().join("not-a-werx");
 
     // Test 'repos create' produces same error as 'create'
-    let output = run_forge(
+    let output = run_werx(
         &["repos", "create", "owner/repo"],
-        &[("FORGE_DIR", non_forge_path.to_str().unwrap())],
+        &[("WERX_DIR", non_werx_path.to_str().unwrap())],
     );
 
     assert_failure(&output);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("No Forge found") || stderr.contains("forge init"));
+    assert!(stderr.contains("No Werx found") || stderr.contains("werx init"));
 }
 
 #[test]
 fn test_create_repo_invalid_format_no_slash() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("test-forge");
+    let werx_path = temp_dir.path().join("test-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
         &[],
     );
 
-    let output = run_forge(
+    let output = run_werx(
         &["create", "invalidformat"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())],
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
 
     assert_failure(&output);
@@ -185,17 +185,17 @@ fn test_create_repo_invalid_format_no_slash() {
 #[test]
 fn test_create_repo_invalid_format_special_chars() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("test-forge");
+    let werx_path = temp_dir.path().join("test-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
         &[],
     );
 
-    let output = run_forge(
+    let output = run_werx(
         &["create", "owner@bad/repo"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())],
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
 
     assert_failure(&output);
@@ -207,17 +207,17 @@ fn test_create_repo_invalid_format_special_chars() {
 #[test]
 fn test_create_repo_success() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("test-forge");
+    let werx_path = temp_dir.path().join("test-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
         &[],
     );
 
-    let output = run_forge(
+    let output = run_werx(
         &["create", "mycompany/awesome-project"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())],
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
 
     assert_success(&output);
@@ -229,9 +229,9 @@ fn test_create_repo_success() {
     );
 
     // Verify the repository appears in list
-    let list_output = run_forge(
+    let list_output = run_werx(
         &["repos", "list"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())],
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
 
     assert_success(&list_output);
@@ -243,25 +243,25 @@ fn test_create_repo_success() {
 #[test]
 fn test_create_repo_duplicate_detection() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("test-forge");
+    let werx_path = temp_dir.path().join("test-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
         &[],
     );
 
     // Create first repository
-    let output1 = run_forge(
+    let output1 = run_werx(
         &["create", "owner/myrepo"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())],
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
     assert_success(&output1);
 
     // Try to create the same repository again
-    let output2 = run_forge(
+    let output2 = run_werx(
         &["create", "owner/myrepo"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())],
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
 
     assert_failure(&output2);
@@ -273,23 +273,23 @@ fn test_create_repo_duplicate_detection() {
 #[test]
 fn test_create_repo_creates_worktree() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("test-forge");
+    let werx_path = temp_dir.path().join("test-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
         &[],
     );
 
-    let output = run_forge(
+    let output = run_werx(
         &["create", "testowner/testrepo"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())],
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
 
     assert_success(&output);
 
     // Verify worktree was created by checking the workspace directory exists
-    let worktree_path = forge_path.join("testrepo").join("main");
+    let worktree_path = werx_path.join("testrepo").join("main");
     assert!(
         worktree_path.exists(),
         "Worktree directory should exist at {:?}",
@@ -304,32 +304,32 @@ fn test_create_repo_creates_worktree() {
 #[test]
 fn test_create_repo_progressive_naming() {
     let temp_dir = TempDir::new().unwrap();
-    let forge_path = temp_dir.path().join("test-forge");
+    let werx_path = temp_dir.path().join("test-werx");
 
-    // Initialize forge
-    run_forge(
-        &["init", forge_path.to_str().unwrap(), "--protocol", "https"],
+    // Initialize werx
+    run_werx(
+        &["init", werx_path.to_str().unwrap(), "--protocol", "https"],
         &[],
     );
 
     // Create first repository with name "utils"
-    let output1 = run_forge(
+    let output1 = run_werx(
         &["create", "alice/utils"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())],
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
     assert_success(&output1);
 
     // Create second repository with same name but different owner
-    let output2 = run_forge(
+    let output2 = run_werx(
         &["create", "bob/utils"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())],
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
     assert_success(&output2);
 
     // Verify both exist with proper naming
-    let list_output = run_forge(
+    let list_output = run_werx(
         &["repos", "list"],
-        &[("FORGE_DIR", forge_path.to_str().unwrap())],
+        &[("WERX_DIR", werx_path.to_str().unwrap())],
     );
     assert_success(&list_output);
 
