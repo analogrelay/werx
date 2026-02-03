@@ -1398,6 +1398,10 @@ fn cmd_agent_spawn(
         println!("  Branch:    {}", branch);
     }
     println!("  Worktree:  {}", result.agent.worktree_path.display());
+    if let Some(created_reason) = &result.created_branch {
+        println!();
+        println!("  Note: {}", created_reason);
+    }
     println!();
     println!("To interact with the agent:");
     println!("  {}", result.attach_command);

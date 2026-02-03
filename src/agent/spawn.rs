@@ -4,8 +4,9 @@
 
 use anyhow::{anyhow, Context, Result};
 use std::path::PathBuf;
+use std::process::Command;
 
-use crate::workspace::{create_worktree, generate_workspace_path};
+use crate::workspace::generate_workspace_path;
 use crate::{Forge, RepoInfo};
 
 use super::names::generate_agent_name;
@@ -40,7 +41,7 @@ pub fn spawn_agent(
     let provider = get_default_provider(&providers, options.agent_type)?;
 
     // Determine the branch to use
-    let branch = options
+    let requested_branch = options
         .branch
         .clone()
         .or_else(|| repo_info.default_branch.clone())
@@ -52,8 +53,12 @@ pub fn spawn_agent(
     // Generate a unique agent name
     let agent_name = generate_agent_name(&existing_names);
 
+    // Check if the branch already has a worktree and resolve if needed
+    let (actual_branch, created_agent_branch) =
+        resolve_branch_for_agent(forge, repo_info, &requested_branch, &agent_name)?;
+
     // Create a worktree for this agent
-    let worktree_path = create_agent_worktree(forge, repo_info, &agent_name, &branch)?;
+    let worktree_path = create_agent_worktree(forge, repo_info, &agent_name, &actual_branch)?;
 
     // Create or use existing tmux session and window
     create_agent_window(&agent_name, &worktree_path)?;
@@ -73,16 +78,110 @@ pub fn spawn_agent(
         repository: repo_info.dir_name.clone(),
         worktree_path,
         status: AgentStatus::Running,
-        branch: Some(branch),
+        branch: Some(actual_branch),
     };
 
-    Ok(SpawnResult::new(agent))
+    let mut result = SpawnResult::new(agent);
+    if created_agent_branch {
+        result.created_branch = Some(format!(
+            "Created new branch because '{}' already has a worktree",
+            requested_branch
+        ));
+    }
+
+    Ok(result)
 }
 
 /// Get names of existing agents from tmux windows
 fn get_existing_agent_names() -> Result<Vec<String>> {
     let windows = tmux_list_windows()?;
     Ok(windows.into_iter().map(|w| w.name).collect())
+}
+
+/// Check if a branch already has a worktree in this repository
+fn branch_has_worktree(repo_path: &std::path::Path, branch: &str) -> Result<bool> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("worktree")
+        .arg("list")
+        .arg("--porcelain")
+        .output()
+        .context("Failed to execute git worktree list")?;
+
+    if !output.status.success() {
+        return Ok(false);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Parse porcelain output looking for branch refs
+    for line in stdout.lines() {
+        if line.starts_with("branch ") {
+            let branch_ref = line.strip_prefix("branch ").unwrap_or("");
+            let worktree_branch = branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref);
+            if worktree_branch == branch {
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+/// Create a new branch for the agent based on the requested branch
+fn create_agent_branch(
+    repo_path: &std::path::Path,
+    agent_name: &str,
+    base_branch: &str,
+) -> Result<String> {
+    let agent_branch = format!("agent/{}", agent_name);
+
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("branch")
+        .arg(&agent_branch)
+        .arg(base_branch)
+        .output()
+        .context("Failed to create agent branch")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!(
+            "Failed to create branch '{}': {}",
+            agent_branch,
+            stderr
+        ));
+    }
+
+    Ok(agent_branch)
+}
+
+/// Resolve the branch to use for the agent, creating a new one if needed
+///
+/// Returns (actual_branch, created_new_branch)
+fn resolve_branch_for_agent(
+    forge: &Forge,
+    repo_info: &RepoInfo,
+    requested_branch: &str,
+    agent_name: &str,
+) -> Result<(String, bool)> {
+    let repo_path = forge.repos_dir().join(&repo_info.dir_name);
+
+    // Check if the requested branch already has a worktree
+    if branch_has_worktree(&repo_path, requested_branch)? {
+        // Branch already has a worktree - create an agent-specific branch
+        eprintln!(
+            "Note: Branch '{}' already has a worktree. Creating agent branch 'agent/{}'.",
+            requested_branch, agent_name
+        );
+        let agent_branch = create_agent_branch(&repo_path, agent_name, requested_branch)?;
+        Ok((agent_branch, true))
+    } else {
+        // Branch is available, use it directly
+        Ok((requested_branch.to_string(), false))
+    }
 }
 
 /// Create a worktree for the agent
@@ -103,9 +202,40 @@ fn create_agent_worktree(
         ));
     }
 
-    // Create the worktree
-    create_worktree(forge, repo_info, agent_name, branch)
-        .context("Failed to create worktree for agent")
+    // Get the bare repository path
+    let bare_repo_path = forge.repos_dir().join(&repo_info.dir_name);
+
+    // Create the repository directory if it doesn't exist
+    let repo_dir_in_forge = forge.root.join(&repo_info.dir_name);
+    if !repo_dir_in_forge.exists() {
+        std::fs::create_dir_all(&repo_dir_in_forge).context(format!(
+            "Failed to create directory '{}'",
+            repo_dir_in_forge.display()
+        ))?;
+    }
+
+    // Execute git worktree add
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&bare_repo_path)
+        .arg("worktree")
+        .arg("add")
+        .arg(&workspace_path)
+        .arg(branch)
+        .output()
+        .context("Failed to execute git worktree add")?;
+
+    if !output.status.success() {
+        // Clean up any partially created directories
+        if workspace_path.exists() {
+            let _ = std::fs::remove_dir_all(&workspace_path);
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("Git worktree add failed:\n{}", stderr));
+    }
+
+    Ok(workspace_path)
 }
 
 /// Create a tmux window for the agent
@@ -139,11 +269,10 @@ fn start_agent_in_window(
                 cmd_parts.push(shell_escape(prompt_text));
             }
             AgentType::Claude => {
-                cmd_parts.push("--prompt".to_string());
                 cmd_parts.push(shell_escape(prompt_text));
             }
             AgentType::Copilot => {
-                // Copilot may handle prompts differently
+                cmd_parts.push("--prompt".to_string());
                 cmd_parts.push(shell_escape(prompt_text));
             }
         }

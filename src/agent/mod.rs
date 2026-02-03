@@ -144,6 +144,9 @@ pub struct SpawnResult {
     pub agent: Agent,
     /// Instructions for attaching to the agent
     pub attach_command: String,
+    /// If set, indicates an agent branch was created (with reason)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_branch: Option<String>,
 }
 
 impl SpawnResult {
@@ -153,6 +156,7 @@ impl SpawnResult {
         Self {
             agent,
             attach_command,
+            created_branch: None,
         }
     }
 }

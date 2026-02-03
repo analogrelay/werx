@@ -112,6 +112,20 @@ The system SHALL create a unique worktree for each spawned agent.
 - **THEN** each agent gets its own unique worktree
 - **AND** the agents can work independently without conflicts
 
+#### Scenario: Branch already has a worktree
+
+- **WHEN** user spawns an agent for a branch that already has a worktree
+- **THEN** the system warns the user that the branch is already checked out
+- **AND** creates a new branch named `agent/<agent-name>` based on the requested branch
+- **AND** creates the worktree using this new agent branch
+- **AND** displays the new branch name in the success message
+
+#### Scenario: Agent branch naming
+
+- **WHEN** an agent branch is created due to branch conflict
+- **THEN** the branch name follows the format `agent/<agent-name>` (e.g., `agent/happy_ferret`)
+- **AND** the branch is based on the originally requested branch
+
 #### Scenario: Worktree naming uses agent name
 
 - **WHEN** user spawns an OpenCode agent for `my-project` on `main`
