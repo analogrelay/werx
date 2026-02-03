@@ -64,7 +64,7 @@ fi
 
 # Calculate next patch version
 IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-NEXT_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+NEXT_VERSION="$MAJOR.$((MINOR + 1)).0"
 
 # Create the new changelog content
 {
