@@ -16,7 +16,9 @@
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
 
-        rustToolchain = pkgs.rust-bin.stable.latest.default;
+        # Read toolchain from rust-toolchain.toml
+        rustToolchain =
+          pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
         cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
 
