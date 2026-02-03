@@ -24,7 +24,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Releasing version: $VERSION"
 
-      - name: Validate changelog is marked
+      - name: Validate changelog is ready for release
         run: ./script/helpers/post-release --check
 
   build:

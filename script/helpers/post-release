@@ -5,7 +5,7 @@ set -euo pipefail
 # bumps the Cargo.toml version, and creates a new unreleased changelog entry.
 #
 # Usage: post-release [--check] [RELEASE_DATE]
-#   --check       Verify changelog is properly marked (has date, not "Unreleased")
+#   --check       Verify changelog is ready for release (marked "Unreleased")
 #   RELEASE_DATE  Date to use for the release (defaults to today's date)
 
 # Navigate to repo root
@@ -51,13 +51,14 @@ fi
 TOP_VERSION_LINE=$(grep -m1 '^## ' "$CHANGELOG")
 
 if [[ "$CHECK_MODE" == "true" ]]; then
-    # Check mode: verify changelog is marked (has date, not "Unreleased")
-    if echo "$TOP_VERSION_LINE" | grep -q "(Unreleased)"; then
-        echo "Error: Changelog not marked for release. Top version is still 'Unreleased'." >&2
-        echo "Run 'script/helpers/post-release' to mark the release." >&2
+    # Check mode: verify changelog is ready for release (marked "Unreleased")
+    if ! echo "$TOP_VERSION_LINE" | grep -q "(Unreleased)"; then
+        echo "Error: Changelog is not ready for release. Top version should be marked '(Unreleased)'." >&2
+        echo "Expected: ## X.Y.Z (Unreleased)" >&2
+        echo "Found: $TOP_VERSION_LINE" >&2
         exit 1
     fi
-    echo "Changelog is marked for release."
+    echo "Changelog is ready for release."
     exit 0
 fi
 
