@@ -14,19 +14,28 @@ const DEFAULT_WERX_DIR: &str = "werx";
 /// 1. Command-line argument (if provided)
 /// 2. WERX_DIR environment variable
 /// 3. Default location: ~/werx
+///
+/// Note: The returned path is canonicalized if it exists, to ensure consistent
+/// behavior when comparing paths (e.g., resolving symlinks like /tmp -> /private/tmp on macOS).
 pub fn resolve_werx_path(cli_path: Option<PathBuf>) -> Result<PathBuf> {
-    if let Some(path) = cli_path {
-        return expand_path(&path);
+    let path = if let Some(path) = cli_path {
+        expand_path(&path)?
+    } else if let Ok(env_path) = env::var(WERX_DIR_ENV) {
+        expand_path(&PathBuf::from(env_path))?
+    } else {
+        // Default: ~/werx
+        let home = dirs::home_dir().context("Could not determine home directory")?;
+        home.join(DEFAULT_WERX_DIR)
+    };
+
+    // Canonicalize the path if it exists, to resolve symlinks
+    // This is important on macOS where /tmp -> /private/tmp
+    if path.exists() {
+        path.canonicalize()
+            .context("Failed to canonicalize werx path")
+    } else {
+        Ok(path)
     }
-
-    if let Ok(env_path) = env::var(WERX_DIR_ENV) {
-        return expand_path(&PathBuf::from(env_path));
-    }
-
-    // Default: ~/werx
-    let home = dirs::home_dir().context("Could not determine home directory")?;
-
-    Ok(home.join(DEFAULT_WERX_DIR))
 }
 
 /// Expand tilde (~) in paths to home directory
