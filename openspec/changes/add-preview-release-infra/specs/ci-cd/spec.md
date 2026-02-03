@@ -49,6 +49,28 @@ The system SHALL provide a `script/check` bash script that runs the same validat
 - **THEN** the CI invokes `script/check` rather than sequencing cargo commands in GitHub Actions YAML
 - **AND** the validation logic is centralized in the script
 
+### Requirement: Changelog Format
+
+The system SHALL maintain a CHANGELOG.md file that follows a consistent format for tracking release history.
+
+The CHANGELOG.md file structure:
+- File title: "# Release History"
+- Version entries: Level-2 headings with version number and status in parentheses (e.g., "## 0.1.0 (Unreleased)" or "## 0.1.0 (2026-02-03)")
+- Four section types per version: "Features Added", "Breaking Changes", "Bugs Fixed", "Other Changes" (level-3 headings)
+- Items within sections are bullet points
+- Versions ordered newest-first (unreleased version at top)
+- Empty sections MAY be omitted from released versions but MUST be present in unreleased versions
+
+#### Scenario: Changelog structure is valid
+- **WHEN** CHANGELOG.md is inspected
+- **THEN** the file begins with "# Release History"
+- **AND** the first version entry is a level-2 heading with version and status
+- **AND** each version contains sections as level-3 headings
+
+#### Scenario: Unreleased version has all sections
+- **WHEN** a version is marked "Unreleased"
+- **THEN** it contains all four section headers: "Features Added", "Breaking Changes", "Bugs Fixed", "Other Changes"
+
 ### Requirement: Release Helper Scripts
 
 The system SHALL provide bash scripts in `script/helpers/` to manage the CHANGELOG.md and version number during the release process.
