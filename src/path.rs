@@ -50,9 +50,14 @@ fn expand_path(path: &std::path::Path) -> Result<PathBuf> {
 mod tests {
     use super::*;
     use std::env;
+    use std::sync::Mutex;
+
+    // Mutex to ensure env var tests run serially
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_cli_path_overrides_all() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         unsafe {
             env::set_var(WERX_DIR_ENV, "/env/path");
         }
@@ -66,6 +71,7 @@ mod tests {
 
     #[test]
     fn test_env_var_overrides_default() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         unsafe {
             env::set_var(WERX_DIR_ENV, "/env/path");
         }
@@ -78,6 +84,7 @@ mod tests {
 
     #[test]
     fn test_default_path() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         unsafe {
             env::remove_var(WERX_DIR_ENV);
         }
