@@ -5,12 +5,12 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use crate::{Forge, Protocol, RepoSpec};
+use crate::{Werx, Protocol, RepoSpec};
 
 /// Repository information for listing
 #[derive(Debug, Clone, Serialize)]
 pub struct RepoInfo {
-    /// The directory name in .forge/repos/
+    /// The directory name in .werx/repos/
     pub dir_name: String,
     /// The clone URL
     pub clone_url: String,
@@ -24,10 +24,10 @@ pub struct RepoInfo {
     pub error: Option<String>,
 }
 
-/// Add a repository to the Forge
-pub fn add_repo(forge: &Forge, repo_spec: &str) -> Result<RepoSpec> {
+/// Add a repository to the Werx
+pub fn add_repo(werx: &Werx, repo_spec: &str) -> Result<RepoSpec> {
     // Load config
-    let mut config = forge.load_config()?;
+    let mut config = werx.load_config()?;
 
     // Parse the repository specification
     // If protocol is not set, we'll prompt for it
@@ -37,7 +37,7 @@ pub fn add_repo(forge: &Forge, repo_spec: &str) -> Result<RepoSpec> {
             // Protocol not set - prompt user
             let protocol = prompt_for_protocol()?;
             config.set_protocol(protocol);
-            forge.save_config(&config)?;
+            werx.save_config(&config)?;
 
             // Try parsing again with the new protocol
             RepoSpec::parse(repo_spec, config.default_provider(), config.protocol())?
@@ -46,7 +46,7 @@ pub fn add_repo(forge: &Forge, repo_spec: &str) -> Result<RepoSpec> {
     };
 
     // Get existing repositories for conflict detection
-    let existing_repos = list_repos(forge)?;
+    let existing_repos = list_repos(werx)?;
 
     // Determine directory name with conflict resolution
     let dir_name = spec.dir_name(&existing_repos);
@@ -56,23 +56,23 @@ pub fn add_repo(forge: &Forge, repo_spec: &str) -> Result<RepoSpec> {
         && existing.normalized_url == spec.normalized_url
     {
         return Err(anyhow!(
-            "Repository already exists: {}\n  Location: .forge/repos/{}",
+            "Repository already exists: {}\n  Location: .werx/repos/{}",
             spec.original,
             dir_name
         ));
     }
 
     // Clone the repository
-    let repo_dir = forge.repos_dir().join(&dir_name);
+    let repo_dir = werx.repos_dir().join(&dir_name);
     println!("Cloning repository: {}", spec.clone_url);
     clone_bare_repo(&spec.clone_url, &repo_dir)?;
 
     println!();
-    println!("✓ Repository added successfully!");
+    println!("Repository added successfully!");
     println!();
     println!("  Specification: {}", spec.original);
     println!("  Clone URL:     {}", spec.clone_url);
-    println!("  Location:      .forge/repos/{}", dir_name);
+    println!("  Location:      .werx/repos/{}", dir_name);
     println!();
 
     Ok(spec)
@@ -108,9 +108,9 @@ fn prompt_for_protocol() -> Result<Protocol> {
     Ok(protocol)
 }
 
-/// List all repositories in the Forge
-pub fn list_repos(forge: &Forge) -> Result<Vec<RepoInfo>> {
-    let repos_dir = forge.repos_dir();
+/// List all repositories in the Werx
+pub fn list_repos(werx: &Werx) -> Result<Vec<RepoInfo>> {
+    let repos_dir = werx.repos_dir();
 
     if !repos_dir.exists() {
         return Ok(Vec::new());
@@ -236,24 +236,24 @@ fn get_default_branch(repo_path: &Path) -> Result<String> {
     Ok(branch)
 }
 
-/// Remove a repository from the Forge
-pub fn remove_repo(forge: &Forge, repo_spec: &str, force: bool) -> Result<()> {
+/// Remove a repository from the Werx
+pub fn remove_repo(werx: &Werx, repo_spec: &str, force: bool) -> Result<()> {
     // Load config
-    let config = forge.load_config()?;
+    let config = werx.load_config()?;
 
     // Parse the repository specification to find the directory
     let spec = RepoSpec::parse(repo_spec, config.default_provider(), config.protocol())
         .context("Failed to parse repository specification")?;
 
     // Get existing repositories to determine correct directory name
-    let existing_repos = list_repos(forge)?;
+    let existing_repos = list_repos(werx)?;
     let dir_name = spec.dir_name(&existing_repos);
 
     // Check if repository exists
-    let repo_dir = forge.repos_dir().join(&dir_name);
+    let repo_dir = werx.repos_dir().join(&dir_name);
     if !repo_dir.exists() {
         return Err(anyhow!(
-            "Repository not found: {}\n\nRun 'forge repos list' to see available repositories.",
+            "Repository not found: {}\n\nRun 'werx repos list' to see available repositories.",
             spec.original
         ));
     }
@@ -264,7 +264,7 @@ pub fn remove_repo(forge: &Forge, repo_spec: &str, force: bool) -> Result<()> {
         println!("About to remove repository:");
         println!("  Specification: {}", spec.original);
         println!("  Clone URL:     {}", spec.clone_url);
-        println!("  Location:      .forge/repos/{}", dir_name);
+        println!("  Location:      .werx/repos/{}", dir_name);
         println!();
 
         let confirmed = Confirm::with_theme(&ColorfulTheme::default())
@@ -320,7 +320,7 @@ fn clone_bare_repo(url: &str, dest: &Path) -> Result<()> {
 /// Information about a newly created repository
 #[derive(Debug, Clone)]
 pub struct CreatedRepoInfo {
-    /// The directory name in .forge/repos/
+    /// The directory name in .werx/repos/
     pub dir_name: String,
     /// The owner component
     pub owner: String,
@@ -368,15 +368,15 @@ pub fn parse_repo_spec(spec: &str) -> Result<(String, String)> {
 }
 
 /// Create a new repository from scratch
-pub fn create_repo(forge: &Forge, repo_spec: &str) -> Result<CreatedRepoInfo> {
+pub fn create_repo(werx: &Werx, repo_spec: &str) -> Result<CreatedRepoInfo> {
     // Parse and validate the owner/repo format
     let (owner, name) = parse_repo_spec(repo_spec)?;
     
     // Load config for protocol (needed for generating clone URL)
-    let config = forge.load_config()?;
+    let config = werx.load_config()?;
     
     // Get existing repositories for conflict detection
-    let existing_repos = list_repos(forge)?;
+    let existing_repos = list_repos(werx)?;
     
     // Generate the expected clone URL for duplicate detection
     let expected_url = generate_origin_url(&owner, &name, config.protocol(), config.default_provider());
@@ -387,7 +387,7 @@ pub fn create_repo(forge: &Forge, repo_spec: &str) -> Result<CreatedRepoInfo> {
     for repo in &existing_repos {
         if repo.normalized_url == expected_normalized {
             return Err(anyhow!(
-                "Repository already exists: {}/{}\n  Location: .forge/repos/{}",
+                "Repository already exists: {}/{}\n  Location: .werx/repos/{}",
                 owner, name, repo.dir_name
             ));
         }
@@ -397,7 +397,7 @@ pub fn create_repo(forge: &Forge, repo_spec: &str) -> Result<CreatedRepoInfo> {
     let dir_name = compute_create_dir_name(&name, &owner, &existing_repos);
     
     // Create the bare repository
-    let repo_dir = forge.repos_dir().join(&dir_name);
+    let repo_dir = werx.repos_dir().join(&dir_name);
     
     println!("Creating repository: {}/{}", owner, name);
     
