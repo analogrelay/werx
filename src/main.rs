@@ -2,6 +2,10 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+use forge::agent::{
+    attach_to_agent, detect_providers, find_agent, get_default_provider, kill_agent, list_agents,
+    spawn_agent, AgentType, SpawnOptions,
+};
 use forge::directive::emit_change_directory;
 use forge::init::initialize_forge;
 use forge::path::resolve_forge_path;
@@ -99,6 +103,10 @@ enum Commands {
         subcommand
     )]
     Shell(ShellCommands),
+
+    /// Manage AI coding agents
+    #[command(about = "Manage AI coding agents", subcommand, alias = "agents")]
+    Agent(AgentCommands),
 }
 
 #[derive(Subcommand)]
@@ -117,6 +125,85 @@ enum ShellCommands {
         #[arg(value_name = "SHELL")]
         shell: String,
     },
+}
+
+#[derive(Subcommand)]
+enum AgentCommands {
+    /// Spawn a new coding agent
+    #[command(
+        about = "Spawn a new coding agent in an isolated worktree",
+        long_about = "Spawn a new AI coding agent in an isolated git worktree.\n\n\
+                      The agent runs in a tmux session for persistence and easy access.\n\n\
+                      Examples:\n  \
+                      forge agent spawn owner/repo              # Spawn on default branch\n  \
+                      forge agent spawn owner/repo --branch feature  # Spawn on specific branch\n  \
+                      forge agent spawn --agent claude          # Use Claude instead of OpenCode"
+    )]
+    Spawn {
+        /// Repository specification (optional if running from within a workspace)
+        #[arg(value_name = "REPO")]
+        repo: Option<String>,
+
+        /// Branch to checkout (defaults to repository's default branch)
+        #[arg(short, long, value_name = "BRANCH")]
+        branch: Option<String>,
+
+        /// Agent to use (opencode, claude, copilot)
+        #[arg(short, long, value_name = "AGENT")]
+        agent: Option<String>,
+
+        /// Initial prompt to send to the agent
+        #[arg(short = 'P', long, value_name = "PROMPT")]
+        prompt: Option<String>,
+
+        /// Open editor to compose initial prompt
+        #[arg(short = 'e', long = "edit-prompt")]
+        edit_prompt: bool,
+    },
+
+    /// List running agents
+    #[command(about = "List all running agents")]
+    List {
+        /// Output format (text or json)
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        format: String,
+    },
+
+    /// Show detailed agent status
+    #[command(about = "Show detailed status of agents")]
+    Status {
+        /// Agent name (optional, shows all if not specified)
+        #[arg(value_name = "AGENT")]
+        agent: Option<String>,
+
+        /// Output format (text or json)
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        format: String,
+    },
+
+    /// Attach to the agent tmux session
+    #[command(about = "Attach to the agent tmux session")]
+    Attach {
+        /// Agent name (optional, attaches to session if not specified)
+        #[arg(value_name = "AGENT")]
+        agent: Option<String>,
+    },
+
+    /// Kill a running agent
+    #[command(about = "Kill a running agent")]
+    Kill {
+        /// Agent name
+        #[arg(value_name = "AGENT")]
+        agent: Option<String>,
+
+        /// Also remove the agent's worktree
+        #[arg(long)]
+        cleanup: bool,
+    },
+
+    /// List available agent providers
+    #[command(about = "List available agent providers")]
+    Providers,
 }
 
 #[derive(Subcommand)]
@@ -312,6 +399,32 @@ fn main() -> Result<()> {
                 format,
             } => {
                 cmd_workspace_check(repo, uncommitted, unpushed, merged, format)?;
+            }
+        },
+        Commands::Agent(subcmd) => match subcmd {
+            AgentCommands::Spawn {
+                repo,
+                branch,
+                agent,
+                prompt,
+                edit_prompt,
+            } => {
+                cmd_agent_spawn(repo, branch, agent, prompt, edit_prompt)?;
+            }
+            AgentCommands::List { format } => {
+                cmd_agent_list(format)?;
+            }
+            AgentCommands::Status { agent, format } => {
+                cmd_agent_status(agent, format)?;
+            }
+            AgentCommands::Attach { agent } => {
+                cmd_agent_attach(agent)?;
+            }
+            AgentCommands::Kill { agent, cleanup } => {
+                cmd_agent_kill(agent, cleanup)?;
+            }
+            AgentCommands::Providers => {
+                cmd_agent_providers()?;
             }
         },
     }
@@ -1213,4 +1326,383 @@ fn print_check_json(
     println!("{}", json);
 
     Ok(())
+}
+
+// =============================================================================
+// Agent Commands
+// =============================================================================
+
+fn cmd_agent_spawn(
+    repo_spec: Option<String>,
+    branch: Option<String>,
+    agent: Option<String>,
+    prompt: Option<String>,
+    edit_prompt: bool,
+) -> Result<()> {
+    // Find the Forge
+    let forge = find_forge()?;
+
+    // Resolve repository
+    let repo_info = if let Some(spec) = repo_spec {
+        find_repository(&forge, &spec)?
+    } else {
+        // Try to detect current workspace
+        let current_dir = std::env::current_dir()?;
+        if let Some(repo) = detect_current_workspace(&current_dir, &forge)? {
+            println!();
+            println!(
+                "Using repository from current workspace: {}",
+                repo.clone_url
+            );
+            repo
+        } else {
+            // Interactive selector
+            select_repository(&forge)?
+        }
+    };
+
+    // Parse agent type if specified
+    let agent_type = if let Some(agent_str) = agent {
+        Some(agent_str.parse::<AgentType>()?)
+    } else {
+        None
+    };
+
+    // Handle edit-prompt
+    let final_prompt = if edit_prompt {
+        Some(get_prompt_from_editor()?)
+    } else {
+        prompt
+    };
+
+    // Build spawn options
+    let options = SpawnOptions {
+        agent_type,
+        branch,
+        prompt: final_prompt,
+    };
+
+    println!();
+    println!("Spawning agent for {}...", repo_info.dir_name);
+
+    // Spawn the agent
+    let result = spawn_agent(&forge, &repo_info, options)?;
+
+    println!();
+    println!("Agent spawned successfully!");
+    println!();
+    println!("  Name:      {}", result.agent.name);
+    println!("  Agent:     {}", result.agent.agent_type);
+    println!("  Repo:      {}", result.agent.repository);
+    if let Some(branch) = &result.agent.branch {
+        println!("  Branch:    {}", branch);
+    }
+    println!("  Worktree:  {}", result.agent.worktree_path.display());
+    println!();
+    println!("To interact with the agent:");
+    println!("  {}", result.attach_command);
+    println!();
+
+    Ok(())
+}
+
+fn cmd_agent_list(format: String) -> Result<()> {
+    let forge = find_forge()?;
+    let agents = list_agents(&forge)?;
+
+    if agents.is_empty() {
+        println!("No agents are currently running.");
+        println!();
+        println!("Run 'forge agent spawn' to start an agent.");
+        return Ok(());
+    }
+
+    match format.as_str() {
+        "json" => {
+            let json = serde_json::to_string_pretty(&agents)?;
+            println!("{}", json);
+        }
+        "text" | _ => {
+            println!();
+            println!("Running Agents:");
+            println!();
+
+            for agent in &agents {
+                let status_indicator = match agent.status {
+                    forge::agent::AgentStatus::Running => "*",
+                    forge::agent::AgentStatus::Exited => " ",
+                    forge::agent::AgentStatus::Failed => "!",
+                    forge::agent::AgentStatus::Unknown => "?",
+                };
+
+                println!(
+                    "  {} {}  ({}) - {}",
+                    status_indicator, agent.name, agent.agent_type, agent.repository
+                );
+                if let Some(branch) = &agent.branch {
+                    println!("      Branch: {}", branch);
+                }
+            }
+
+            println!();
+            println!("Total: {} agents", agents.len());
+            println!();
+            println!("Commands:");
+            println!("  forge agent attach [name]  - Attach to agent session");
+            println!("  forge agent kill [name]    - Kill an agent");
+            println!();
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_agent_status(agent_name: Option<String>, format: String) -> Result<()> {
+    let forge = find_forge()?;
+
+    let agents = if let Some(name) = agent_name {
+        let agent = find_agent(&forge, &name)?;
+        vec![agent]
+    } else {
+        list_agents(&forge)?
+    };
+
+    if agents.is_empty() {
+        println!("No agents are currently running.");
+        return Ok(());
+    }
+
+    match format.as_str() {
+        "json" => {
+            let json = serde_json::to_string_pretty(&agents)?;
+            println!("{}", json);
+        }
+        "text" | _ => {
+            println!();
+            for agent in &agents {
+                println!("Agent: {}", agent.name);
+                println!("  Type:      {}", agent.agent_type);
+                println!("  Status:    {}", agent.status);
+                println!("  Repo:      {}", agent.repository);
+                if let Some(branch) = &agent.branch {
+                    println!("  Branch:    {}", branch);
+                }
+                println!("  Worktree:  {}", agent.worktree_path.display());
+                println!();
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_agent_attach(agent_name: Option<String>) -> Result<()> {
+    let forge = find_forge()?;
+
+    // If no agent specified and multiple exist, show interactive selector
+    let agent_to_attach = if agent_name.is_none() {
+        let agents = list_agents(&forge)?;
+        if agents.is_empty() {
+            return Err(anyhow::anyhow!(
+                "No agents are currently running.\n\nRun 'forge agent spawn' to start an agent."
+            ));
+        }
+        if agents.len() == 1 {
+            Some(agents[0].name.clone())
+        } else if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            // Interactive selection
+            println!();
+            println!("Multiple agents running. Select one:");
+            println!();
+
+            let items: Vec<String> = agents.iter().map(|a| a.display()).collect();
+
+            let selection =
+                dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                    .items(&items)
+                    .default(0)
+                    .interact()?;
+
+            Some(agents[selection].name.clone())
+        } else {
+            return Err(anyhow::anyhow!(
+                "Multiple agents running. Please specify which agent to attach to.\n\n\
+                 Run 'forge agent list' to see running agents."
+            ));
+        }
+    } else {
+        agent_name
+    };
+
+    // This will exec into tmux, replacing the current process
+    attach_to_agent(agent_to_attach.as_deref())
+}
+
+fn cmd_agent_kill(agent_name: Option<String>, cleanup: bool) -> Result<()> {
+    let forge = find_forge()?;
+
+    // If no agent specified, show interactive selector or error
+    let agent_to_kill = if let Some(name) = agent_name {
+        name
+    } else {
+        let agents = list_agents(&forge)?;
+        if agents.is_empty() {
+            return Err(anyhow::anyhow!("No agents are currently running."));
+        }
+        if agents.len() == 1 {
+            agents[0].name.clone()
+        } else if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            // Interactive selection
+            println!();
+            println!("Multiple agents running. Select one to kill:");
+            println!();
+
+            let items: Vec<String> = agents.iter().map(|a| a.display()).collect();
+
+            let selection =
+                dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                    .items(&items)
+                    .default(0)
+                    .interact()?;
+
+            agents[selection].name.clone()
+        } else {
+            return Err(anyhow::anyhow!(
+                "Multiple agents running. Please specify which agent to kill.\n\n\
+                 Run 'forge agent list' to see running agents."
+            ));
+        }
+    };
+
+    // Get agent info before killing
+    let agent = find_agent(&forge, &agent_to_kill)?;
+
+    println!();
+    println!("Killing agent '{}'...", agent.name);
+
+    let session_closed = kill_agent(&forge, &agent.name, cleanup)?;
+
+    println!();
+    println!("Agent '{}' terminated.", agent.name);
+
+    if cleanup {
+        println!("Worktree removed: {}", agent.worktree_path.display());
+    } else {
+        println!("Worktree preserved: {}", agent.worktree_path.display());
+        println!();
+        println!("To remove the worktree later:");
+        println!(
+            "  forge workspace remove {}/{}",
+            agent.repository, agent.name
+        );
+    }
+
+    if session_closed {
+        println!();
+        println!("Note: This was the last agent, tmux session has been closed.");
+    }
+
+    println!();
+
+    Ok(())
+}
+
+fn cmd_agent_providers() -> Result<()> {
+    let providers = detect_providers();
+    let default = get_default_provider(&providers, None);
+
+    println!();
+    println!("Available Agent Providers:");
+    println!();
+
+    for provider in &providers {
+        let status = if provider.available { "*" } else { " " };
+        let is_default = if let Ok(d) = &default {
+            d.agent_type == provider.agent_type
+        } else {
+            false
+        };
+        let default_marker = if is_default { " (default)" } else { "" };
+
+        println!(
+            "  {} {}{}",
+            status,
+            provider.agent_type.display_name(),
+            default_marker
+        );
+        println!("      Command: {}", provider.full_command());
+        if let Some(path) = &provider.path {
+            println!("      Path:    {}", path);
+        }
+        println!(
+            "      Status:  {}",
+            if provider.available {
+                "Available"
+            } else {
+                "Not found"
+            }
+        );
+        println!();
+    }
+
+    println!("Legend: * = Available");
+    println!();
+
+    if default.is_err() {
+        println!("Warning: No agents are available.");
+        println!();
+        println!("Install one of the following:");
+        println!("  - OpenCode: https://opencode.ai");
+        println!("  - Claude Code: https://claude.ai/code");
+        println!("  - GitHub Copilot CLI: gh extension install github/gh-copilot");
+        println!();
+    }
+
+    Ok(())
+}
+
+/// Open $EDITOR to compose a prompt
+fn get_prompt_from_editor() -> Result<String> {
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+
+    // Create a temp file
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join("forge-agent-prompt.txt");
+
+    // Write a placeholder
+    std::fs::write(
+        &temp_file,
+        "# Enter your prompt for the agent below.\n# Lines starting with # will be ignored.\n\n",
+    )?;
+
+    // Open editor
+    let status = std::process::Command::new(&editor)
+        .arg(&temp_file)
+        .status()
+        .map_err(|e| anyhow::anyhow!("Failed to open editor '{}': {}", editor, e))?;
+
+    if !status.success() {
+        return Err(anyhow::anyhow!("Editor exited with non-zero status"));
+    }
+
+    // Read the file
+    let content = std::fs::read_to_string(&temp_file)?;
+
+    // Clean up
+    let _ = std::fs::remove_file(&temp_file);
+
+    // Filter out comment lines and trim
+    let prompt: String = content
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+
+    if prompt.is_empty() {
+        return Err(anyhow::anyhow!("Prompt is empty. Aborting spawn."));
+    }
+
+    Ok(prompt)
 }

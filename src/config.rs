@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -63,18 +64,76 @@ impl Default for ProviderConfig {
     }
 }
 
+/// Configuration for a specific agent provider
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentProviderConfig {
+    /// The command to run for this agent
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+
+    /// Additional arguments to pass to the agent
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+}
+
+impl Default for AgentProviderConfig {
+    fn default() -> Self {
+        AgentProviderConfig {
+            command: None,
+            args: Vec::new(),
+        }
+    }
+}
+
+/// Per-repository agent preferences
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepoAgentConfig {
+    /// Preferred agent for this repository
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred_agent: Option<String>,
+}
+
+impl Default for RepoAgentConfig {
+    fn default() -> Self {
+        RepoAgentConfig {
+            preferred_agent: None,
+        }
+    }
+}
+
+/// Agent configuration section
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentConfig {
+    /// Default agent to use when none is specified
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+
+    /// Per-provider configuration overrides
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub providers: HashMap<String, AgentProviderConfig>,
+
+    /// Per-repository preferences (keyed by normalized URL like "github.com/owner/repo")
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub repos: HashMap<String, RepoAgentConfig>,
+}
+
 /// Forge configuration stored in .forge/config.toml
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Provider settings
     #[serde(default)]
     pub provider: ProviderConfig,
+
+    /// Agent settings
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agents: Option<AgentConfig>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Config {
             provider: ProviderConfig::default(),
+            agents: None,
         }
     }
 }
@@ -128,6 +187,27 @@ impl Config {
     /// Get the default provider
     pub fn default_provider(&self) -> &str {
         &self.provider.default
+    }
+
+    /// Get the default agent type name (e.g., "opencode", "claude")
+    pub fn default_agent(&self) -> Option<&str> {
+        self.agents.as_ref().and_then(|a| a.default.as_deref())
+    }
+
+    /// Get the preferred agent for a specific repository
+    /// The repo_key should be in the format "github.com/owner/repo"
+    pub fn preferred_agent_for_repo(&self, repo_key: &str) -> Option<&str> {
+        self.agents
+            .as_ref()
+            .and_then(|a| a.repos.get(repo_key))
+            .and_then(|r| r.preferred_agent.as_deref())
+    }
+
+    /// Get custom provider configuration for an agent type
+    pub fn agent_provider_config(&self, agent_type: &str) -> Option<&AgentProviderConfig> {
+        self.agents
+            .as_ref()
+            .and_then(|a| a.providers.get(agent_type))
     }
 }
 

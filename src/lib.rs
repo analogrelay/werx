@@ -1,8 +1,8 @@
-mod namedata;
-
+pub mod agent;
 pub mod config;
 pub mod directive;
 pub mod init;
+pub mod namedata;
 pub mod path;
 pub mod repo_spec;
 pub mod repos;
