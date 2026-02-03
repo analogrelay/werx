@@ -317,6 +317,275 @@ fn clone_bare_repo(url: &str, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Information about a newly created repository
+#[derive(Debug, Clone)]
+pub struct CreatedRepoInfo {
+    /// The directory name in .forge/repos/
+    pub dir_name: String,
+    /// The owner component
+    pub owner: String,
+    /// The repository name component
+    pub name: String,
+    /// The path to the bare repository
+    pub bare_repo_path: std::path::PathBuf,
+}
+
+/// Parse and validate a repository specification in owner/repo format
+pub fn parse_repo_spec(spec: &str) -> Result<(String, String)> {
+    let parts: Vec<&str> = spec.split('/').collect();
+    
+    if parts.len() != 2 {
+        return Err(anyhow!(
+            "Invalid repository specification: '{}'\n\n\
+             Expected format: owner/repo\n\
+             Examples: mycompany/awesome-project, alice/utils"
+            , spec
+        ));
+    }
+    
+    let owner = parts[0].trim();
+    let name = parts[1].trim();
+    
+    // Validate owner format (alphanumeric and hyphens)
+    if owner.is_empty() || !owner.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err(anyhow!(
+            "Invalid owner format: '{}'\n\n\
+             Owner must contain only alphanumeric characters, hyphens, and underscores.",
+            owner
+        ));
+    }
+    
+    // Validate repo name format
+    if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.') {
+        return Err(anyhow!(
+            "Invalid repository name format: '{}'\n\n\
+             Repository name must contain only alphanumeric characters, hyphens, underscores, and dots.",
+            name
+        ));
+    }
+    
+    Ok((owner.to_string(), name.to_string()))
+}
+
+/// Create a new repository from scratch
+pub fn create_repo(forge: &Forge, repo_spec: &str) -> Result<CreatedRepoInfo> {
+    // Parse and validate the owner/repo format
+    let (owner, name) = parse_repo_spec(repo_spec)?;
+    
+    // Load config for protocol (needed for generating clone URL)
+    let config = forge.load_config()?;
+    
+    // Get existing repositories for conflict detection
+    let existing_repos = list_repos(forge)?;
+    
+    // Generate the expected clone URL for duplicate detection
+    let expected_url = generate_origin_url(&owner, &name, config.protocol(), config.default_provider());
+    let expected_normalized = crate::repo_spec::normalize_url(&expected_url)
+        .unwrap_or_else(|_| expected_url.to_lowercase());
+    
+    // Check for duplicate by checking if any existing repo has a matching normalized URL
+    for repo in &existing_repos {
+        if repo.normalized_url == expected_normalized {
+            return Err(anyhow!(
+                "Repository already exists: {}/{}\n  Location: .forge/repos/{}",
+                owner, name, repo.dir_name
+            ));
+        }
+    }
+    
+    // Compute directory name using progressive qualification
+    let dir_name = compute_create_dir_name(&name, &owner, &existing_repos);
+    
+    // Create the bare repository
+    let repo_dir = forge.repos_dir().join(&dir_name);
+    
+    println!("Creating repository: {}/{}", owner, name);
+    
+    // Initialize bare repository
+    init_bare_repo(&repo_dir)?;
+    
+    // Configure remote origin URL for future publishing
+    let clone_url = generate_origin_url(&owner, &name, config.protocol(), config.default_provider());
+    if let Err(e) = configure_origin(&repo_dir, &clone_url) {
+        // Clean up on failure
+        let _ = fs::remove_dir_all(&repo_dir);
+        return Err(e);
+    }
+    
+    // Initialize main branch with empty commit
+    if let Err(e) = init_main_branch(&repo_dir) {
+        // Clean up on failure
+        let _ = fs::remove_dir_all(&repo_dir);
+        return Err(e);
+    }
+    
+    Ok(CreatedRepoInfo {
+        dir_name,
+        owner,
+        name,
+        bare_repo_path: repo_dir,
+    })
+}
+
+/// Compute directory name for a new repository using progressive qualification
+fn compute_create_dir_name(name: &str, owner: &str, existing_repos: &[RepoInfo]) -> String {
+    // Try simple name first
+    let simple_name = name.to_string();
+    if !existing_repos.iter().any(|r| r.dir_name == simple_name) {
+        return simple_name;
+    }
+    
+    // Try owner-qualified name
+    let qualified_name = format!("{}-{}", owner.to_lowercase(), name);
+    if !existing_repos.iter().any(|r| r.dir_name == qualified_name) {
+        return qualified_name;
+    }
+    
+    // Use hash-qualified name
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(format!("{}/{}", owner, name).as_bytes());
+    let result = hasher.finalize();
+    let hash = format!("{:x}", result);
+    let hash_suffix = &hash[..6];
+    
+    format!("{}-{}-{}", owner.to_lowercase(), name, hash_suffix)
+}
+
+/// Initialize a new bare git repository
+fn init_bare_repo(dest: &Path) -> Result<()> {
+    // Create the directory
+    fs::create_dir_all(dest).context(format!(
+        "Failed to create repository directory '{}'",
+        dest.display()
+    ))?;
+    
+    let output = Command::new("git")
+        .arg("init")
+        .arg("--bare")
+        .arg(dest)
+        .output()
+        .context("Failed to execute git init --bare command")?;
+
+    if !output.status.success() {
+        // Clean up partial init if it exists
+        if dest.exists() {
+            let _ = fs::remove_dir_all(dest);
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("Git init failed:\n{}", stderr));
+    }
+
+    Ok(())
+}
+
+/// Generate origin URL for future publishing
+fn generate_origin_url(owner: &str, name: &str, protocol: Option<crate::Protocol>, default_provider: &str) -> String {
+    let provider = default_provider.to_lowercase();
+    
+    match (provider.as_str(), protocol) {
+        ("github", Some(crate::Protocol::Ssh)) => format!("git@github.com:{}/{}.git", owner, name),
+        ("github", _) => format!("https://github.com/{}/{}.git", owner, name),
+        ("gitlab", Some(crate::Protocol::Ssh)) => format!("git@gitlab.com:{}/{}.git", owner, name),
+        ("gitlab", _) => format!("https://gitlab.com/{}/{}.git", owner, name),
+        // Default to GitHub HTTPS
+        _ => format!("https://github.com/{}/{}.git", owner, name),
+    }
+}
+
+/// Configure remote origin URL
+fn configure_origin(repo_path: &Path, url: &str) -> Result<()> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("remote")
+        .arg("add")
+        .arg("origin")
+        .arg(url)
+        .output()
+        .context("Failed to execute git remote add command")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("Failed to configure remote origin:\n{}", stderr));
+    }
+
+    Ok(())
+}
+
+/// Initialize main branch with an empty commit
+fn init_main_branch(repo_path: &Path) -> Result<()> {
+    // Use git hash-object and update-ref to create an empty commit
+    // First, create an empty tree
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("hash-object")
+        .arg("-t")
+        .arg("tree")
+        .arg("/dev/null")
+        .output()
+        .context("Failed to create empty tree")?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("Failed to create empty tree:\n{}", stderr));
+    }
+    
+    let tree_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    
+    // Create a commit with the empty tree
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("commit-tree")
+        .arg(&tree_hash)
+        .arg("-m")
+        .arg("Initial commit")
+        .output()
+        .context("Failed to create initial commit")?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("Failed to create initial commit:\n{}", stderr));
+    }
+    
+    let commit_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    
+    // Update refs/heads/main to point to the new commit
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("update-ref")
+        .arg("refs/heads/main")
+        .arg(&commit_hash)
+        .output()
+        .context("Failed to update main ref")?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("Failed to update main branch:\n{}", stderr));
+    }
+    
+    // Set HEAD to point to main
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("symbolic-ref")
+        .arg("HEAD")
+        .arg("refs/heads/main")
+        .output()
+        .context("Failed to set HEAD")?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("Failed to set HEAD:\n{}", stderr));
+    }
+    
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     // Note: These tests require git to be installed and network access for cloning

@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 pub use config::{Config, Protocol};
 pub use repo_spec::RepoSpec;
-pub use repos::RepoInfo;
+pub use repos::{CreatedRepoInfo, RepoInfo};
 pub use workspace::{Workspace, WorkspaceStatus};
 
 /// Internal directory that contains all Forge metadata and repositories

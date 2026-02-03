@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use forge::directive::emit_change_directory;
 use forge::init::initialize_forge;
 use forge::path::resolve_forge_path;
-use forge::repos::{add_repo, list_repos, remove_repo};
+use forge::repos::{add_repo, create_repo, list_repos, remove_repo};
 use forge::shell::cmd_shell_init;
 use forge::workspace::{
     check_workspace_status, confirm_workspace_removal, create_worktree, detect_current_workspace,
@@ -46,6 +46,14 @@ enum Commands {
     #[command(about = "Add a repository to the Forge")]
     Add {
         /// Repository specification (URL, provider:owner/repo, or owner/repo)
+        #[arg(value_name = "REPO")]
+        repo: String,
+    },
+
+    /// Create a new repository from scratch (alias for 'repos create')
+    #[command(about = "Create a new repository from scratch")]
+    Create {
+        /// Repository specification in owner/repo format
         #[arg(value_name = "REPO")]
         repo: String,
     },
@@ -117,6 +125,14 @@ enum ReposCommands {
     #[command(about = "Add a repository to the Forge")]
     Add {
         /// Repository specification (URL, provider:owner/repo, or owner/repo)
+        #[arg(value_name = "REPO")]
+        repo: String,
+    },
+
+    /// Create a new repository from scratch
+    #[command(about = "Create a new repository from scratch")]
+    Create {
+        /// Repository specification in owner/repo format
         #[arg(value_name = "REPO")]
         repo: String,
     },
@@ -247,6 +263,9 @@ fn main() -> Result<()> {
         Commands::Add { repo } => {
             cmd_add(repo)?;
         }
+        Commands::Create { repo } => {
+            cmd_create(repo)?;
+        }
         Commands::Go { query } => {
             cmd_go(query)?;
         }
@@ -258,6 +277,9 @@ fn main() -> Result<()> {
         Commands::Repos(subcmd) => match subcmd {
             ReposCommands::Add { repo } => {
                 cmd_add(repo)?;
+            }
+            ReposCommands::Create { repo } => {
+                cmd_create(repo)?;
             }
             ReposCommands::List { format } => {
                 cmd_list(format)?;
@@ -358,6 +380,55 @@ fn cmd_add(repo: String) -> Result<()> {
 
     // Add the repository
     add_repo(&forge, &repo)?;
+
+    Ok(())
+}
+
+fn cmd_create(repo: String) -> Result<()> {
+    // Find the Forge
+    let forge = find_forge()?;
+
+    // Create the repository
+    let created_info = create_repo(&forge, &repo)?;
+
+    // Now create the worktree on main
+    println!("Creating workspace on main branch...");
+
+    // Build RepoInfo for the newly created repository
+    let repo_info = forge::RepoInfo {
+        dir_name: created_info.dir_name.clone(),
+        clone_url: format!(
+            "https://github.com/{}/{}.git",
+            created_info.owner, created_info.name
+        ),
+        normalized_url: format!(
+            "https://github.com/{}/{}.git",
+            created_info.owner.to_lowercase(),
+            created_info.name.to_lowercase()
+        ),
+        default_branch: Some("main".to_string()),
+        valid: true,
+        error: None,
+    };
+
+    // Create worktree on main
+    let workspace_path = create_worktree(&forge, &repo_info, "main", "main")?;
+
+    println!();
+    println!("✓ Repository created successfully!");
+    println!();
+    println!("  Repository: {}/{}", created_info.owner, created_info.name);
+    println!("  Location:   .forge/repos/{}", created_info.dir_name);
+    println!("  Workspace:  {}/main", created_info.dir_name);
+    println!("  Path:       {}", workspace_path.display());
+    println!();
+    println!("Next steps:");
+    println!("  cd {}", workspace_path.display());
+    println!();
+    println!("When ready to publish:");
+    println!("  Create the repository on GitHub/GitLab, then:");
+    println!("  git push -u origin main");
+    println!();
 
     Ok(())
 }
