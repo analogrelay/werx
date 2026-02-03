@@ -42,6 +42,7 @@ werx init
 ```
 
 Priority order for location:
+
 1. Command-line argument
 2. `WERX_DIR` environment variable
 3. Default: `~/werx`
@@ -63,16 +64,19 @@ Options:
 ### Examples
 
 Initialize at default location:
+
 ```bash
 werx init
 ```
 
 Initialize at custom location:
+
 ```bash
 werx init ~/my-projects
 ```
 
 Re-initialize an existing Werx (preserves content):
+
 ```bash
 werx init --force
 ```
@@ -84,7 +88,6 @@ When you initialize a Werx, the following structure is created:
 ```
 ~/werx/                   # Werx root (for workspaces)
 ├── .werx/               # Internal directory (hidden)
-│   ├── marker           # Werx marker file
 │   └── repos/           # Repository storage
 └── [workspaces...]      # Your workspace directories (non-hidden)
 ```
@@ -163,11 +166,13 @@ This is similar to how tools like `direnv`, `zoxide`, and `starship` integrate w
 ### Environment Variables
 
 - **`WERX_BIN`**: Override the path to the werx binary (useful for testing or custom installations)
+
   ```bash
   export WERX_BIN=/path/to/custom/werx
   ```
 
 - **`WERX_DIR`**: Set a custom location for your Werx (default: `~/werx`)
+
   ```bash
   export WERX_DIR=/path/to/werx
   ```
@@ -186,7 +191,3 @@ cargo test
 cargo fmt
 cargo clippy
 ```
-
-## License
-
-[Add your license here]
