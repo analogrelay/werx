@@ -42,7 +42,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run checks
-        run: ./script/check
+        run: ./script/check --release
 
   nix-build:
     name: Nix Build
