@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::workspace::generate_workspace_path;
-use crate::{Forge, RepoInfo};
+use crate::{RepoInfo, Werx};
 
 use super::names::generate_agent_name;
 use super::providers::{detect_providers, get_default_provider, AgentProvider};
@@ -19,7 +19,7 @@ use super::{Agent, AgentStatus, AgentType, SpawnOptions, SpawnResult};
 
 /// Spawn a new agent for a repository
 pub fn spawn_agent(
-    forge: &Forge,
+    werx: &Werx,
     repo_info: &RepoInfo,
     options: SpawnOptions,
 ) -> Result<SpawnResult> {
@@ -61,16 +61,11 @@ pub fn spawn_agent(
         .unwrap_or("main");
 
     // Check if the branch already has a worktree and resolve if needed
-    let (actual_branch, branch_info) = resolve_branch_for_agent(
-        forge,
-        repo_info,
-        &requested_branch,
-        base_branch,
-        &agent_name,
-    )?;
+    let (actual_branch, branch_info) =
+        resolve_branch_for_agent(werx, repo_info, &requested_branch, base_branch, &agent_name)?;
 
     // Create a worktree for this agent
-    let worktree_path = create_agent_worktree(forge, repo_info, &agent_name, &actual_branch)?;
+    let worktree_path = create_agent_worktree(werx, repo_info, &agent_name, &actual_branch)?;
 
     // Create or use existing tmux session and window
     create_agent_window(&agent_name, &worktree_path)?;
@@ -207,13 +202,13 @@ fn create_branch(repo_path: &std::path::Path, branch: &str, base_branch: &str) -
 ///
 /// Returns (actual_branch, info_message)
 fn resolve_branch_for_agent(
-    forge: &Forge,
+    werx: &Werx,
     repo_info: &RepoInfo,
     requested_branch: &str,
     base_branch: &str,
     agent_name: &str,
 ) -> Result<(String, Option<String>)> {
-    let repo_path = forge.repos_dir().join(&repo_info.dir_name);
+    let repo_path = werx.repos_dir().join(&repo_info.dir_name);
 
     // Check if the requested branch exists
     let branch_already_exists = branch_exists(&repo_path, requested_branch)?;
@@ -253,13 +248,13 @@ fn resolve_branch_for_agent(
 
 /// Create a worktree for the agent
 fn create_agent_worktree(
-    forge: &Forge,
+    werx: &Werx,
     repo_info: &RepoInfo,
     agent_name: &str,
     branch: &str,
 ) -> Result<PathBuf> {
     // Agent worktrees go under <repo>/<agent_name>
-    let workspace_path = generate_workspace_path(forge, &repo_info.dir_name, agent_name);
+    let workspace_path = generate_workspace_path(werx, &repo_info.dir_name, agent_name);
 
     // Check if path already exists (shouldn't happen with unique names)
     if workspace_path.exists() {
@@ -270,14 +265,14 @@ fn create_agent_worktree(
     }
 
     // Get the bare repository path
-    let bare_repo_path = forge.repos_dir().join(&repo_info.dir_name);
+    let bare_repo_path = werx.repos_dir().join(&repo_info.dir_name);
 
     // Create the repository directory if it doesn't exist
-    let repo_dir_in_forge = forge.root.join(&repo_info.dir_name);
-    if !repo_dir_in_forge.exists() {
-        std::fs::create_dir_all(&repo_dir_in_forge).context(format!(
+    let repo_dir_in_werx = werx.root.join(&repo_info.dir_name);
+    if !repo_dir_in_werx.exists() {
+        std::fs::create_dir_all(&repo_dir_in_werx).context(format!(
             "Failed to create directory '{}'",
-            repo_dir_in_forge.display()
+            repo_dir_in_werx.display()
         ))?;
     }
 

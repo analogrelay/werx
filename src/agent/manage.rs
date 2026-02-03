@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use std::path::PathBuf;
 
 use crate::workspace::{list_workspaces, remove_workspace};
-use crate::Forge;
+use crate::Werx;
 
 use super::tmux::{
     tmux_attach, tmux_is_available, tmux_kill_window, tmux_list_windows, tmux_session_exists,
@@ -12,7 +12,7 @@ use super::tmux::{
 use super::{Agent, AgentStatus, AgentType};
 
 /// List all running agents
-pub fn list_agents(forge: &Forge) -> Result<Vec<Agent>> {
+pub fn list_agents(werx: &Werx) -> Result<Vec<Agent>> {
     if !tmux_is_available() {
         return Ok(Vec::new());
     }
@@ -22,7 +22,7 @@ pub fn list_agents(forge: &Forge) -> Result<Vec<Agent>> {
     }
 
     let windows = tmux_list_windows()?;
-    let workspaces = list_workspaces(forge)?;
+    let workspaces = list_workspaces(werx)?;
 
     let mut agents = Vec::new();
 
@@ -61,15 +61,15 @@ pub fn list_agents(forge: &Forge) -> Result<Vec<Agent>> {
 }
 
 /// Get detailed status for a specific agent
-pub fn get_agent_status(forge: &Forge, agent_name: &str) -> Result<Agent> {
-    let agents = list_agents(forge)?;
+pub fn get_agent_status(werx: &Werx, agent_name: &str) -> Result<Agent> {
+    let agents = list_agents(werx)?;
 
     agents
         .into_iter()
         .find(|a| a.name == agent_name)
         .ok_or_else(|| {
             anyhow!(
-                "Agent '{}' not found.\n\nRun 'forge agent list' to see running agents.",
+                "Agent '{}' not found.\n\nRun 'werx agent list' to see running agents.",
                 agent_name
             )
         })
@@ -87,7 +87,7 @@ pub fn attach_to_agent(agent_name: Option<&str>) -> Result<()> {
     if !tmux_session_exists() {
         return Err(anyhow!(
             "No agents are currently running.\n\n\
-             Run 'forge agent spawn' to start an agent."
+             Run 'werx agent spawn' to start an agent."
         ));
     }
 
@@ -109,11 +109,11 @@ pub fn attach_to_agent(agent_name: Option<&str>) -> Result<()> {
 }
 
 /// Kill an agent and optionally clean up its worktree
-pub fn kill_agent(forge: &Forge, agent_name: &str, cleanup: bool) -> Result<bool> {
+pub fn kill_agent(werx: &Werx, agent_name: &str, cleanup: bool) -> Result<bool> {
     if !tmux_session_exists() {
         return Err(anyhow!(
             "No agents are currently running.\n\n\
-             Run 'forge agent list' to see agent status."
+             Run 'werx agent list' to see agent status."
         ));
     }
 
@@ -129,7 +129,7 @@ pub fn kill_agent(forge: &Forge, agent_name: &str, cleanup: bool) -> Result<bool
     }
 
     // Find the workspace path before killing
-    let workspaces = list_workspaces(forge)?;
+    let workspaces = list_workspaces(werx)?;
     let workspace = workspaces.iter().find(|ws| ws.name == agent_name);
 
     // Kill the tmux window
@@ -139,7 +139,7 @@ pub fn kill_agent(forge: &Forge, agent_name: &str, cleanup: bool) -> Result<bool
     if cleanup {
         if let Some(ws) = workspace {
             let workspace_path = format!("{}/{}", ws.repository, ws.name);
-            remove_workspace(forge, &workspace_path)?;
+            remove_workspace(werx, &workspace_path)?;
         }
     }
 
@@ -147,8 +147,8 @@ pub fn kill_agent(forge: &Forge, agent_name: &str, cleanup: bool) -> Result<bool
 }
 
 /// Find an agent by name (partial match supported)
-pub fn find_agent(forge: &Forge, query: &str) -> Result<Agent> {
-    let agents = list_agents(forge)?;
+pub fn find_agent(werx: &Werx, query: &str) -> Result<Agent> {
+    let agents = list_agents(werx)?;
 
     // Exact match first
     if let Some(agent) = agents.iter().find(|a| a.name == query) {
@@ -160,7 +160,7 @@ pub fn find_agent(forge: &Forge, query: &str) -> Result<Agent> {
 
     match matches.len() {
         0 => Err(anyhow!(
-            "No agent matching '{}' found.\n\nRun 'forge agent list' to see running agents.",
+            "No agent matching '{}' found.\n\nRun 'werx agent list' to see running agents.",
             query
         )),
         1 => Ok(matches[0].clone()),

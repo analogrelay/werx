@@ -26,8 +26,8 @@ pub use tmux::{
     tmux_session_exists, TmuxSession,
 };
 
-/// The name of the tmux session used for all forge agents
-pub const FORGE_AGENTS_SESSION: &str = "forge-agents";
+/// The name of the tmux session used for all werx agents
+pub const WERX_AGENTS_SESSION: &str = "werx-agents";
 
 /// Supported agent types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,7 +152,7 @@ pub struct SpawnResult {
 impl SpawnResult {
     /// Create a new spawn result
     pub fn new(agent: Agent) -> Self {
-        let attach_command = format!("forge agent attach {}", agent.name);
+        let attach_command = format!("werx agent attach {}", agent.name);
         Self {
             agent,
             attach_command,

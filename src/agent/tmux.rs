@@ -6,7 +6,7 @@
 use anyhow::{anyhow, Context, Result};
 use std::process::Command;
 
-use super::{AgentStatus, FORGE_AGENTS_SESSION};
+use super::{AgentStatus, WERX_AGENTS_SESSION};
 
 /// Information about a tmux window (agent instance)
 #[derive(Debug, Clone)]
@@ -37,23 +37,23 @@ pub fn tmux_is_available() -> bool {
         .unwrap_or(false)
 }
 
-/// Check if the forge-agents session exists
+/// Check if the werx-agents session exists
 pub fn tmux_session_exists() -> bool {
     Command::new("tmux")
-        .args(["has-session", "-t", FORGE_AGENTS_SESSION])
+        .args(["has-session", "-t", WERX_AGENTS_SESSION])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
 
-/// Create the forge-agents tmux session with an initial window
+/// Create the werx-agents tmux session with an initial window
 pub fn tmux_create_session(window_name: &str, working_dir: &std::path::Path) -> Result<()> {
     let output = Command::new("tmux")
         .args([
             "new-session",
             "-d", // detached
             "-s",
-            FORGE_AGENTS_SESSION,
+            WERX_AGENTS_SESSION,
             "-n",
             window_name,
             "-c",
@@ -70,13 +70,13 @@ pub fn tmux_create_session(window_name: &str, working_dir: &std::path::Path) -> 
     Ok(())
 }
 
-/// Create a new window in the forge-agents session
+/// Create a new window in the werx-agents session
 pub fn tmux_create_window(window_name: &str, working_dir: &std::path::Path) -> Result<()> {
     let output = Command::new("tmux")
         .args([
             "new-window",
             "-t",
-            FORGE_AGENTS_SESSION,
+            WERX_AGENTS_SESSION,
             "-n",
             window_name,
             "-c",
@@ -95,7 +95,7 @@ pub fn tmux_create_window(window_name: &str, working_dir: &std::path::Path) -> R
 
 /// Send a command to a tmux window
 pub fn tmux_send_keys(window_name: &str, command: &str) -> Result<()> {
-    let target = format!("{}:{}", FORGE_AGENTS_SESSION, window_name);
+    let target = format!("{}:{}", WERX_AGENTS_SESSION, window_name);
 
     let output = Command::new("tmux")
         .args(["send-keys", "-t", &target, command, "Enter"])
@@ -110,7 +110,7 @@ pub fn tmux_send_keys(window_name: &str, command: &str) -> Result<()> {
     Ok(())
 }
 
-/// List all windows in the forge-agents session
+/// List all windows in the werx-agents session
 pub fn tmux_list_windows() -> Result<Vec<TmuxWindow>> {
     if !tmux_session_exists() {
         return Ok(Vec::new());
@@ -120,7 +120,7 @@ pub fn tmux_list_windows() -> Result<Vec<TmuxWindow>> {
         .args([
             "list-windows",
             "-t",
-            FORGE_AGENTS_SESSION,
+            WERX_AGENTS_SESSION,
             "-F",
             "#{window_index}:#{window_name}:#{pane_dead}",
         ])
@@ -155,7 +155,7 @@ pub fn tmux_list_windows() -> Result<Vec<TmuxWindow>> {
 
 /// Select a specific window in the session
 pub fn tmux_select_window(window_name: &str) -> Result<()> {
-    let target = format!("{}:{}", FORGE_AGENTS_SESSION, window_name);
+    let target = format!("{}:{}", WERX_AGENTS_SESSION, window_name);
 
     let output = Command::new("tmux")
         .args(["select-window", "-t", &target])
@@ -170,7 +170,7 @@ pub fn tmux_select_window(window_name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Attach to the forge-agents session
+/// Attach to the werx-agents session
 pub fn tmux_attach(window_name: Option<&str>) -> Result<()> {
     // If a specific window is requested, select it first
     if let Some(name) = window_name {
@@ -179,7 +179,7 @@ pub fn tmux_attach(window_name: Option<&str>) -> Result<()> {
 
     // Use exec to replace current process with tmux attach
     let err = exec::Command::new("tmux")
-        .args(&["attach-session", "-t", FORGE_AGENTS_SESSION])
+        .args(&["attach-session", "-t", WERX_AGENTS_SESSION])
         .exec();
 
     // exec() only returns if there was an error
@@ -188,7 +188,7 @@ pub fn tmux_attach(window_name: Option<&str>) -> Result<()> {
 
 /// Kill a specific window in the session
 pub fn tmux_kill_window(window_name: &str) -> Result<bool> {
-    let target = format!("{}:{}", FORGE_AGENTS_SESSION, window_name);
+    let target = format!("{}:{}", WERX_AGENTS_SESSION, window_name);
 
     // First check how many windows exist
     let windows = tmux_list_windows()?;
