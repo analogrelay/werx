@@ -588,14 +588,240 @@ fn init_main_branch(repo_path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    // Note: These tests require git to be installed and network access for cloning
-    // For unit testing purposes, we'd typically mock the git clone operation
-    // Here we'll test the core logic and error handling
+    use super::*;
+
+    // ===== parse_repo_spec tests =====
 
     #[test]
-    fn test_add_repo_requires_forge() {
-        // This test would require mocking the clone operation
-        // For now, we'll just verify the structure is in place
-        assert!(true);
+    fn test_parse_repo_spec_valid_simple() {
+        let result = parse_repo_spec("owner/repo");
+        assert!(result.is_ok());
+        let (owner, name) = result.unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(name, "repo");
+    }
+
+    #[test]
+    fn test_parse_repo_spec_valid_with_hyphens() {
+        let result = parse_repo_spec("my-company/awesome-project");
+        assert!(result.is_ok());
+        let (owner, name) = result.unwrap();
+        assert_eq!(owner, "my-company");
+        assert_eq!(name, "awesome-project");
+    }
+
+    #[test]
+    fn test_parse_repo_spec_valid_with_underscores() {
+        let result = parse_repo_spec("my_company/awesome_project");
+        assert!(result.is_ok());
+        let (owner, name) = result.unwrap();
+        assert_eq!(owner, "my_company");
+        assert_eq!(name, "awesome_project");
+    }
+
+    #[test]
+    fn test_parse_repo_spec_valid_with_dots_in_repo() {
+        let result = parse_repo_spec("owner/repo.name");
+        assert!(result.is_ok());
+        let (owner, name) = result.unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(name, "repo.name");
+    }
+
+    #[test]
+    fn test_parse_repo_spec_valid_with_numbers() {
+        let result = parse_repo_spec("user123/project456");
+        assert!(result.is_ok());
+        let (owner, name) = result.unwrap();
+        assert_eq!(owner, "user123");
+        assert_eq!(name, "project456");
+    }
+
+    #[test]
+    fn test_parse_repo_spec_invalid_no_slash() {
+        let result = parse_repo_spec("ownerrepo");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Invalid repository specification"));
+        assert!(err.contains("Expected format: owner/repo"));
+    }
+
+    #[test]
+    fn test_parse_repo_spec_invalid_too_many_slashes() {
+        let result = parse_repo_spec("owner/repo/extra");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Invalid repository specification"));
+    }
+
+    #[test]
+    fn test_parse_repo_spec_invalid_empty_owner() {
+        let result = parse_repo_spec("/repo");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Invalid owner format"));
+    }
+
+    #[test]
+    fn test_parse_repo_spec_invalid_empty_name() {
+        let result = parse_repo_spec("owner/");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Invalid repository name format"));
+    }
+
+    #[test]
+    fn test_parse_repo_spec_invalid_owner_special_chars() {
+        let result = parse_repo_spec("owner@bad/repo");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Invalid owner format"));
+    }
+
+    #[test]
+    fn test_parse_repo_spec_invalid_name_special_chars() {
+        let result = parse_repo_spec("owner/repo@bad");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Invalid repository name format"));
+    }
+
+    #[test]
+    fn test_parse_repo_spec_trims_whitespace() {
+        let result = parse_repo_spec(" owner / repo ");
+        assert!(result.is_ok());
+        let (owner, name) = result.unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(name, "repo");
+    }
+
+    // ===== compute_create_dir_name tests =====
+
+    #[test]
+    fn test_compute_create_dir_name_simple_no_conflict() {
+        let existing: Vec<RepoInfo> = vec![];
+        let result = compute_create_dir_name("myrepo", "owner", &existing);
+        assert_eq!(result, "myrepo");
+    }
+
+    #[test]
+    fn test_compute_create_dir_name_owner_qualified_on_conflict() {
+        let existing = vec![RepoInfo {
+            dir_name: "myrepo".to_string(),
+            clone_url: "https://github.com/other/myrepo.git".to_string(),
+            normalized_url: "github.com/other/myrepo".to_string(),
+            default_branch: Some("main".to_string()),
+            valid: true,
+            error: None,
+        }];
+        let result = compute_create_dir_name("myrepo", "newowner", &existing);
+        assert_eq!(result, "newowner-myrepo");
+    }
+
+    #[test]
+    fn test_compute_create_dir_name_hash_qualified_on_double_conflict() {
+        let existing = vec![
+            RepoInfo {
+                dir_name: "myrepo".to_string(),
+                clone_url: "https://github.com/first/myrepo.git".to_string(),
+                normalized_url: "github.com/first/myrepo".to_string(),
+                default_branch: Some("main".to_string()),
+                valid: true,
+                error: None,
+            },
+            RepoInfo {
+                dir_name: "thirdowner-myrepo".to_string(),
+                clone_url: "https://github.com/thirdowner/myrepo.git".to_string(),
+                normalized_url: "github.com/thirdowner/myrepo".to_string(),
+                default_branch: Some("main".to_string()),
+                valid: true,
+                error: None,
+            },
+        ];
+        let result = compute_create_dir_name("myrepo", "thirdowner", &existing);
+        // Should get hash-qualified name since both simple and owner-qualified are taken
+        assert!(result.starts_with("thirdowner-myrepo-"));
+        assert!(result.len() > "thirdowner-myrepo-".len());
+        // Verify it's a 6-char hex suffix
+        let suffix = &result["thirdowner-myrepo-".len()..];
+        assert_eq!(suffix.len(), 6);
+        assert!(suffix.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_compute_create_dir_name_lowercase_owner() {
+        let existing = vec![RepoInfo {
+            dir_name: "myrepo".to_string(),
+            clone_url: "https://github.com/other/myrepo.git".to_string(),
+            normalized_url: "github.com/other/myrepo".to_string(),
+            default_branch: Some("main".to_string()),
+            valid: true,
+            error: None,
+        }];
+        let result = compute_create_dir_name("myrepo", "MyOwner", &existing);
+        assert_eq!(result, "myowner-myrepo");
+    }
+
+    #[test]
+    fn test_compute_create_dir_name_hash_is_deterministic() {
+        let existing = vec![
+            RepoInfo {
+                dir_name: "myrepo".to_string(),
+                clone_url: "https://github.com/first/myrepo.git".to_string(),
+                normalized_url: "github.com/first/myrepo".to_string(),
+                default_branch: Some("main".to_string()),
+                valid: true,
+                error: None,
+            },
+            RepoInfo {
+                dir_name: "owner-myrepo".to_string(),
+                clone_url: "https://github.com/owner/myrepo.git".to_string(),
+                normalized_url: "github.com/owner/myrepo".to_string(),
+                default_branch: Some("main".to_string()),
+                valid: true,
+                error: None,
+            },
+        ];
+        let result1 = compute_create_dir_name("myrepo", "owner", &existing);
+        let result2 = compute_create_dir_name("myrepo", "owner", &existing);
+        assert_eq!(result1, result2);
+    }
+
+    // ===== generate_origin_url tests =====
+
+    #[test]
+    fn test_generate_origin_url_github_ssh() {
+        let url = generate_origin_url("myowner", "myrepo", Some(crate::Protocol::Ssh), "github");
+        assert_eq!(url, "git@github.com:myowner/myrepo.git");
+    }
+
+    #[test]
+    fn test_generate_origin_url_github_https() {
+        let url = generate_origin_url("myowner", "myrepo", Some(crate::Protocol::Https), "github");
+        assert_eq!(url, "https://github.com/myowner/myrepo.git");
+    }
+
+    #[test]
+    fn test_generate_origin_url_github_no_protocol() {
+        let url = generate_origin_url("myowner", "myrepo", None, "github");
+        assert_eq!(url, "https://github.com/myowner/myrepo.git");
+    }
+
+    #[test]
+    fn test_generate_origin_url_gitlab_ssh() {
+        let url = generate_origin_url("myowner", "myrepo", Some(crate::Protocol::Ssh), "gitlab");
+        assert_eq!(url, "git@gitlab.com:myowner/myrepo.git");
+    }
+
+    #[test]
+    fn test_generate_origin_url_gitlab_https() {
+        let url = generate_origin_url("myowner", "myrepo", Some(crate::Protocol::Https), "gitlab");
+        assert_eq!(url, "https://gitlab.com/myowner/myrepo.git");
+    }
+
+    #[test]
+    fn test_generate_origin_url_unknown_provider_defaults_to_github() {
+        let url = generate_origin_url("myowner", "myrepo", None, "unknown");
+        assert_eq!(url, "https://github.com/myowner/myrepo.git");
     }
 }
