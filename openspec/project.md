@@ -2,17 +2,17 @@
 
 ## Purpose
 
-Forge is a CLI tool for managing a single root directory on a user's machine that holds all their source code repositories and workspaces. The tool provides a unified interface for organizing and working with code across your entire machine.
+Werx is a CLI tool for managing a single root directory on a user's machine that holds all their source code repositories and workspaces. The tool provides a unified interface for organizing and working with code across your entire machine.
 
 **Core Capabilities**:
 
-- **Repository Management**: Add existing Git repositories to the Forge, making them discoverable and manageable from anywhere on the system
-- **New Repository Creation**: Create brand new Git repositories within the Forge structure
+- **Repository Management**: Add existing Git repositories to the Werx, making them discoverable and manageable from anywhere on the system
+- **New Repository Creation**: Create brand new Git repositories within the Werx structure
 - **Workspace Management**: Create and manage workspaces, which can be:
-  - Git worktrees linked to repositories in the Forge (for parallel development on different branches)
+  - Git worktrees linked to repositories in the Werx (for parallel development on different branches)
   - Scratch directories for quick tests and experiments
   - Prototype projects that may later become full Git repositories
-- **Centralized Code Organization**: Your local Forge becomes the single source of truth for where all your code lives
+- **Centralized Code Organization**: Your local Werx becomes the single source of truth for where all your code lives
 
 The goal is to eliminate the scattered nature of code directories across a developer's machine and provide a consistent, discoverable structure for all development work.
 
@@ -71,7 +71,7 @@ The goal is to eliminate the scattered nature of code directories across a devel
 
 ## Domain Context
 
-Forge operates in the DevOps/tooling space, focusing on:
+Werx operates in the DevOps/tooling space, focusing on:
 
 - Developer productivity and automation
 - Command-line interfaces and scripting integration

@@ -1,6 +1,6 @@
-# Forge
+# Werx
 
-Forge is a tool for managing your code repositories and workspaces in a centralized location.
+Werx is a tool for managing your code repositories and workspaces in a centralized location.
 
 ## Installation
 
@@ -8,54 +8,54 @@ Forge is a tool for managing your code repositories and workspaces in a centrali
 
 ```bash
 git clone <repository-url>
-cd forge
+cd werx
 cargo build --release
 ```
 
-The binary will be available at `target/release/forge`. You can copy it to a location in your PATH:
+The binary will be available at `target/release/werx`. You can copy it to a location in your PATH:
 
 ```bash
-cp target/release/forge /usr/local/bin/
+cp target/release/werx /usr/local/bin/
 ```
 
 ## Usage
 
-### Initialize a Forge
+### Initialize a Werx
 
-Create a new Forge at the default location (`~/forge`):
+Create a new Werx at the default location (`~/werx`):
 
 ```bash
-forge init
+werx init
 ```
 
-Create a Forge at a custom location:
+Create a Werx at a custom location:
 
 ```bash
-forge init /path/to/forge
+werx init /path/to/werx
 ```
 
 Use environment variable for custom location:
 
 ```bash
-export FORGE_DIR=/path/to/forge
-forge init
+export WERX_DIR=/path/to/werx
+werx init
 ```
 
 Priority order for location:
 1. Command-line argument
-2. `FORGE_DIR` environment variable
-3. Default: `~/forge`
+2. `WERX_DIR` environment variable
+3. Default: `~/werx`
 
 ### Command-Line Options
 
 ```bash
-forge init [PATH] [OPTIONS]
+werx init [PATH] [OPTIONS]
 
 Arguments:
-  [PATH]  Path where the Forge should be created
+  [PATH]  Path where the Werx should be created
 
 Options:
-  -f, --force    Force re-initialization of an existing Forge
+  -f, --force    Force re-initialization of an existing Werx
   -h, --help     Print help
   -V, --version  Print version
 ```
@@ -64,69 +64,69 @@ Options:
 
 Initialize at default location:
 ```bash
-forge init
+werx init
 ```
 
 Initialize at custom location:
 ```bash
-forge init ~/my-projects
+werx init ~/my-projects
 ```
 
-Re-initialize an existing Forge (preserves content):
+Re-initialize an existing Werx (preserves content):
 ```bash
-forge init --force
+werx init --force
 ```
 
 ## Directory Structure
 
-When you initialize a Forge, the following structure is created:
+When you initialize a Werx, the following structure is created:
 
 ```
-~/forge/                  # Forge root (for workspaces)
-├── .forge/              # Internal directory (hidden)
-│   ├── marker           # Forge marker file
+~/werx/                   # Werx root (for workspaces)
+├── .werx/               # Internal directory (hidden)
+│   ├── marker           # Werx marker file
 │   └── repos/           # Repository storage
 └── [workspaces...]      # Your workspace directories (non-hidden)
 ```
 
-Workspaces are created directly in the Forge root (`~/forge/`) as regular (non-hidden) directories, making them easy to access. All internal Forge data, including repository clones, is stored in the hidden `.forge/` directory.
+Workspaces are created directly in the Werx root (`~/werx/`) as regular (non-hidden) directories, making them easy to access. All internal Werx data, including repository clones, is stored in the hidden `.werx/` directory.
 
 ## Navigation
 
-Forge provides a fast navigation system to jump between workspaces using fuzzy search.
+Werx provides a fast navigation system to jump between workspaces using fuzzy search.
 
-### Using `forge go`
+### Using `werx go`
 
 Navigate to any workspace with fuzzy search:
 
 ```bash
-forge go
+werx go
 ```
 
 Pre-fill the search with a query:
 
 ```bash
-forge go feature
+werx go feature
 ```
 
 Direct navigation (if query matches exactly one workspace):
 
 ```bash
-forge go myrepo/main
+werx go myrepo/main
 ```
 
-**Note:** The `forge go` command requires shell integration to be set up (see below) in order to change your shell's current directory.
+**Note:** The `werx go` command requires shell integration to be set up (see below) in order to change your shell's current directory.
 
 ## Shell Integration
 
-To enable directory navigation with `forge go`, you need to set up shell integration. This wraps the `forge` command with a shell function that can process directory change directives.
+To enable directory navigation with `werx go`, you need to set up shell integration. This wraps the `werx` command with a shell function that can process directory change directives.
 
 ### Setup for Bash
 
 Add this line to your `~/.bashrc`:
 
 ```bash
-eval "$(forge shell init bash)"
+eval "$(werx shell init bash)"
 ```
 
 Then reload your shell:
@@ -140,7 +140,7 @@ source ~/.bashrc
 Add this line to your `~/.zshrc`:
 
 ```bash
-eval "$(forge shell init zsh)"
+eval "$(werx shell init zsh)"
 ```
 
 Then reload your shell:
@@ -153,7 +153,7 @@ source ~/.zshrc
 
 The shell integration works by:
 
-1. Wrapping the `forge` binary with a shell function
+1. Wrapping the `werx` binary with a shell function
 2. Capturing output from the binary that includes special directives
 3. Executing shell commands (like `cd`) based on those directives
 4. Displaying normal output to the user
@@ -162,14 +162,14 @@ This is similar to how tools like `direnv`, `zoxide`, and `starship` integrate w
 
 ### Environment Variables
 
-- **`FORGE_BIN`**: Override the path to the forge binary (useful for testing or custom installations)
+- **`WERX_BIN`**: Override the path to the werx binary (useful for testing or custom installations)
   ```bash
-  export FORGE_BIN=/path/to/custom/forge
+  export WERX_BIN=/path/to/custom/werx
   ```
 
-- **`FORGE_DIR`**: Set a custom location for your Forge (default: `~/forge`)
+- **`WERX_DIR`**: Set a custom location for your Werx (default: `~/werx`)
   ```bash
-  export FORGE_DIR=/path/to/forge
+  export WERX_DIR=/path/to/werx
   ```
 
 ## Development
