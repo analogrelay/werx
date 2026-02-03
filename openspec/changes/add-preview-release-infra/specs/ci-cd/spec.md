@@ -49,6 +49,48 @@ The system SHALL provide a `script/check` bash script that runs the same validat
 - **THEN** the CI invokes `script/check` rather than sequencing cargo commands in GitHub Actions YAML
 - **AND** the validation logic is centralized in the script
 
+### Requirement: Release Helper Scripts
+
+The system SHALL provide bash scripts in `script/helpers/` to manage the CHANGELOG.md and version number during the release process.
+
+#### Scenario: Mark release script exists with proper shebang
+- **WHEN** a developer inspects `script/helpers/mark-release`
+- **THEN** the file exists
+- **AND** the file starts with `#!/usr/bin/env bash` shebang
+- **AND** the file is executable
+
+#### Scenario: Mark release fills in release date
+- **WHEN** a developer runs `script/helpers/mark-release`
+- **THEN** the top version entry in CHANGELOG.md has its "Unreleased" marker replaced with today's date in YYYY-MM-DD format
+- **AND** empty sections (sections with no content beneath them) are removed from that version's entry
+
+#### Scenario: Mark release accepts custom date
+- **WHEN** a developer runs `script/helpers/mark-release 2026-03-15`
+- **THEN** the specified date is used instead of today's date
+
+#### Scenario: Mark release creates new unreleased entry
+- **WHEN** a developer runs `script/helpers/mark-release`
+- **THEN** a new version entry is created above the just-released version
+- **AND** the new version number is the next patch version (e.g., `0.1.0` -> `0.1.1`)
+- **AND** the new entry is marked "Unreleased"
+- **AND** the new entry contains empty section headers for "Features Added", "Breaking Changes", "Bugs Fixed", and "Other Changes"
+
+#### Scenario: Mark release check mode validates changelog is ready
+- **WHEN** a developer runs `script/helpers/mark-release --check`
+- **THEN** the script exits with code 0 if the changelog has already been marked (top version has a date, not "Unreleased")
+- **AND** the script exits with non-zero code if the top version is still marked "Unreleased"
+- **AND** no changes are made to any files
+
+#### Scenario: Bump version script exists with proper shebang
+- **WHEN** a developer inspects `script/helpers/bump-version`
+- **THEN** the file exists
+- **AND** the file starts with `#!/usr/bin/env bash` shebang
+- **AND** the file is executable
+
+#### Scenario: Bump version increments Cargo.toml patch version
+- **WHEN** a developer runs `script/helpers/bump-version`
+- **THEN** the version field in Cargo.toml is incremented to the next patch version (e.g., `0.1.0` -> `0.1.1`)
+
 ### Requirement: Release Pipeline
 
 The system SHALL provide an automated release pipeline via GitHub Actions that is triggered by manual workflow dispatch.
@@ -79,3 +121,15 @@ The system SHALL provide an automated release pipeline via GitHub Actions that i
 - **AND** tests MUST pass on macOS x86_64
 - **AND** tests MUST pass on macOS aarch64
 - **BEFORE** any release artifacts are created or GitHub Release is published
+
+#### Scenario: Release validates changelog is marked
+- **WHEN** the release workflow is triggered
+- **THEN** the workflow runs `script/helpers/mark-release --check`
+- **AND** the release fails if the changelog has not been marked for release
+- **BEFORE** any release artifacts are created or GitHub Release is published
+
+#### Scenario: Release creates version bump PR after tagging
+- **WHEN** the release workflow successfully creates a GitHub Release
+- **THEN** the workflow runs `script/helpers/bump-version` to increment the Cargo.toml version
+- **AND** the workflow opens a pull request with the version bump change
+- **AND** the PR title indicates it is a post-release version bump
