@@ -26,7 +26,12 @@
 
           cargoLock = { lockFile = ./Cargo.lock; };
 
-          # Tests require git which isn't available in the nix sandbox
+          nativeCheckInputs = [ pkgs.git ];
+
+          # Tests currently use `cargo run` instead of the pre-built binary,
+          # which doesn't work well in the nix sandbox. The fix is to update
+          # tests/common/mod.rs to use env!("CARGO_BIN_EXE_werx") instead.
+          # TODO: Enable tests once test infrastructure is updated.
           doCheck = false;
 
           meta = with pkgs.lib; {
