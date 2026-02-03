@@ -44,3 +44,7 @@ devenv.local.yaml
 # Added by cargo
 
 /target
+
+# Nix build result
+result
+result-*

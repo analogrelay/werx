@@ -1,13 +1,56 @@
 # Werx
 
+[![CI](https://github.com/analogrelay/werx/actions/workflows/ci.yml/badge.svg)](https://github.com/analogrelay/werx/actions/workflows/ci.yml)
+
 Werx is a tool for managing your code repositories and workspaces in a centralized location.
 
 ## Installation
 
+### Pre-built Binaries
+
+Download the latest release binary for your platform from the [GitHub Releases](https://github.com/analogrelay/werx/releases) page.
+
+Available platforms:
+- Linux (x86_64, aarch64)
+- macOS (x86_64, aarch64)
+
+After downloading, make the binary executable and move it to a location in your PATH:
+
+```bash
+chmod +x werx-*
+mv werx-* /usr/local/bin/werx
+```
+
+### Using Nix
+
+Werx can be installed using [Nix](https://nixos.org/):
+
+```bash
+# Run without installing
+nix run github:analogrelay/werx
+
+# Install to your profile
+nix profile install github:analogrelay/werx
+```
+
+For NixOS or Home Manager users, you can add the flake to your inputs:
+
+```nix
+{
+  inputs.werx.url = "github:analogrelay/werx";
+}
+```
+
+A development shell is also available:
+
+```bash
+nix develop github:analogrelay/werx
+```
+
 ### From Source
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/analogrelay/werx.git
 cd werx
 cargo build --release
 ```
@@ -179,6 +222,16 @@ This is similar to how tools like `direnv`, `zoxide`, and `starship` integrate w
 
 ## Development
 
+### Running All Checks
+
+Run the full check suite (same as CI):
+
+```bash
+./script/check
+```
+
+This runs formatting checks, clippy lints, build, and tests.
+
 ### Running Tests
 
 ```bash
@@ -191,3 +244,13 @@ cargo test
 cargo fmt
 cargo clippy
 ```
+
+### Development Shell (Nix)
+
+If you use Nix, a development shell is available:
+
+```bash
+nix develop
+```
+
+This provides all the tools needed for development, including the Rust toolchain and rust-analyzer.
