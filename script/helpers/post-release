@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Post-release script: marks the current changelog entry as released,
+# bumps the Cargo.toml version, and creates a new unreleased changelog entry.
+#
+# Usage: post-release [--check] [RELEASE_DATE]
+#   --check       Verify changelog is properly marked (has date, not "Unreleased")
+#   RELEASE_DATE  Date to use for the release (defaults to today's date)
+
+# Navigate to repo root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/../.."
+
+CHANGELOG="CHANGELOG.md"
+CARGO_TOML="Cargo.toml"
+CHECK_MODE=false
+RELEASE_DATE=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --check)
+            CHECK_MODE=true
+            shift
+            ;;
+        *)
+            RELEASE_DATE="$1"
+            shift
+            ;;
+    esac
+done
+
+# Default to today's date if not provided
+if [[ -z "$RELEASE_DATE" ]]; then
+    RELEASE_DATE=$(date +%Y-%m-%d)
+fi
+
+# Verify required files exist
+if [[ ! -f "$CHANGELOG" ]]; then
+    echo "Error: $CHANGELOG not found" >&2
+    exit 1
+fi
+
+if [[ ! -f "$CARGO_TOML" ]]; then
+    echo "Error: $CARGO_TOML not found" >&2
+    exit 1
+fi
+
+# Extract the current top version line from changelog
+TOP_VERSION_LINE=$(grep -m1 '^## ' "$CHANGELOG")
+
+if [[ "$CHECK_MODE" == "true" ]]; then
+    # Check mode: verify changelog is marked (has date, not "Unreleased")
+    if echo "$TOP_VERSION_LINE" | grep -q "(Unreleased)"; then
+        echo "Error: Changelog not marked for release. Top version is still 'Unreleased'." >&2
+        echo "Run 'script/helpers/post-release' to mark the release." >&2
+        exit 1
+    fi
+    echo "Changelog is marked for release."
+    exit 0
+fi
+
+# Extract version number from top changelog entry
+CHANGELOG_VERSION=$(echo "$TOP_VERSION_LINE" | sed -E 's/^## ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+
+if [[ -z "$CHANGELOG_VERSION" ]]; then
+    echo "Error: Could not extract version number from changelog" >&2
+    exit 1
+fi
+
+# Check if already released
+if ! echo "$TOP_VERSION_LINE" | grep -q "(Unreleased)"; then
+    echo "Error: Top version is already released (not 'Unreleased')" >&2
+    exit 1
+fi
+
+# Extract current version from Cargo.toml
+CARGO_VERSION=$(grep -m1 '^version = ' "$CARGO_TOML" | sed -E 's/version = "([0-9]+\.[0-9]+\.[0-9]+)"/\1/')
+
+if [[ -z "$CARGO_VERSION" ]]; then
+    echo "Error: Could not extract version from $CARGO_TOML" >&2
+    exit 1
+fi
+
+# Verify versions match
+if [[ "$CHANGELOG_VERSION" != "$CARGO_VERSION" ]]; then
+    echo "Error: Version mismatch - Changelog: $CHANGELOG_VERSION, Cargo.toml: $CARGO_VERSION" >&2
+    exit 1
+fi
+
+# Calculate next minor version (for changelog unreleased entry)
+IFS='.' read -r MAJOR MINOR PATCH <<< "$CHANGELOG_VERSION"
+NEXT_MINOR_VERSION="$MAJOR.$((MINOR + 1)).0"
+
+# Calculate next patch version (for Cargo.toml)
+NEXT_PATCH_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+
+# Update Cargo.toml to next patch version
+sed -i.bak -E "s/^version = \"$CARGO_VERSION\"/version = \"$NEXT_PATCH_VERSION\"/" "$CARGO_TOML"
+rm -f "$CARGO_TOML.bak"
+
+echo "Bumped Cargo.toml version: $CARGO_VERSION -> $NEXT_PATCH_VERSION"
+
+# Create the new changelog content
+{
+    # Header
+    echo "# Release History"
+    echo ""
+    
+    # New unreleased entry
+    echo "## $NEXT_MINOR_VERSION (Unreleased)"
+    echo ""
+    echo "### Features Added"
+    echo ""
+    echo "### Breaking Changes"
+    echo ""
+    echo "### Bugs Fixed"
+    echo ""
+    echo "### Other Changes"
+    echo ""
+    
+    # Process the rest of the file
+    # State: "header" -> "top_preamble" -> "top_section" -> "rest"
+    STATE="header"
+    PENDING_SECTION=""
+    SECTION_CONTENT=""
+    PREAMBLE_CONTENT=""
+    
+    while IFS= read -r line; do
+        # Skip the file header
+        if [[ "$line" == "# Release History" ]]; then
+            continue
+        fi
+        
+        # Detect version headers (## X.Y.Z ...)
+        if [[ "$line" =~ ^##\ [0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            # Flush any pending section with content
+            if [[ -n "$PENDING_SECTION" ]] && [[ -n "$SECTION_CONTENT" ]]; then
+                echo "$PENDING_SECTION"
+                echo ""
+                printf "%s" "$SECTION_CONTENT"
+                echo ""
+            fi
+            PENDING_SECTION=""
+            SECTION_CONTENT=""
+            
+            if [[ "$STATE" == "header" ]]; then
+                # First version - rewrite with release date
+                echo "## $CHANGELOG_VERSION ($RELEASE_DATE)"
+                STATE="top_preamble"
+                PREAMBLE_CONTENT=""
+            else
+                # Subsequent versions - pass through
+                STATE="rest"
+                echo "$line"
+            fi
+            continue
+        fi
+        
+        # Detect section headers (### ...)
+        if [[ "$line" =~ ^###\  ]]; then
+            case "$STATE" in
+                "top_preamble")
+                    # Output preamble content if any
+                    if [[ -n "$PREAMBLE_CONTENT" ]]; then
+                        echo ""
+                        printf "%s" "$PREAMBLE_CONTENT"
+                    fi
+                    echo ""
+                    # Moving from preamble to sections
+                    STATE="top_section"
+                    PENDING_SECTION="$line"
+                    SECTION_CONTENT=""
+                    ;;
+                "top_section")
+                    # Flush previous section if it had content
+                    if [[ -n "$PENDING_SECTION" ]] && [[ -n "$SECTION_CONTENT" ]]; then
+                        echo "$PENDING_SECTION"
+                        echo ""
+                        printf "%s" "$SECTION_CONTENT"
+                        echo ""
+                    fi
+                    PENDING_SECTION="$line"
+                    SECTION_CONTENT=""
+                    ;;
+                "rest")
+                    echo "$line"
+                    ;;
+            esac
+            continue
+        fi
+        
+        # Handle content lines
+        case "$STATE" in
+            "top_preamble")
+                # Accumulate preamble content (non-empty lines only)
+                if [[ -n "${line// /}" ]]; then
+                    PREAMBLE_CONTENT+="$line"$'\n'
+                fi
+                ;;
+            "top_section")
+                # Accumulate section content, track if there's real content
+                if [[ -n "${line// /}" ]]; then
+                    # Non-empty line - real content
+                    SECTION_CONTENT+="$line"$'\n'
+                fi
+                ;;
+            "rest")
+                echo "$line"
+                ;;
+        esac
+    done < "$CHANGELOG"
+    
+    # Flush final pending section if it had content
+    if [[ -n "$PENDING_SECTION" ]] && [[ -n "$SECTION_CONTENT" ]]; then
+        echo "$PENDING_SECTION"
+        echo ""
+        printf "%s" "$SECTION_CONTENT"
+    fi
+} > "$CHANGELOG.tmp"
+
+mv "$CHANGELOG.tmp" "$CHANGELOG"
+
+echo "Marked changelog $CHANGELOG_VERSION for release on $RELEASE_DATE"
+echo "Created new unreleased entry for $NEXT_MINOR_VERSION"

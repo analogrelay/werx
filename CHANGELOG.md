@@ -10,6 +10,8 @@
 
 ### Other Changes
 
+- Merged `mark-release` and `bump-version` into single `post-release` script (PR TBD)
+
 
 ## 0.1.0 (2026-02-03)
 
