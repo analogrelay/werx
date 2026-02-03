@@ -3,8 +3,9 @@ use std::process::Command;
 
 /// Run a werx command with arguments and environment variables
 pub fn run_werx(args: &[&str], env: &[(&str, &str)]) -> std::process::Output {
-    let mut cmd = Command::new("cargo");
-    cmd.args(&["run", "--"]);
+    // Use the pre-built binary from cargo test, not `cargo run`
+    let binary = env!("CARGO_BIN_EXE_werx");
+    let mut cmd = Command::new(binary);
     cmd.args(args);
 
     for (key, value) in env {
