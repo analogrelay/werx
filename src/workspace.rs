@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-use crate::{repos, Forge, RepoInfo, RepoSpec};
+use crate::{repos, RepoInfo, RepoSpec, Werx};
 
 /// Workspace information
 #[derive(Debug, Clone, Serialize)]
@@ -19,7 +19,7 @@ pub struct Workspace {
     pub name: String,
     /// The full path to the workspace directory
     pub path: PathBuf,
-    /// The repository name (directory name in .forge/repos/)
+    /// The repository name (directory name in .werx/repos/)
     pub repository: String,
     /// The branch this workspace is tracking
     pub branch: Option<String>,
@@ -77,19 +77,19 @@ pub struct MergeDetails {
     pub remote_tracking: Option<String>,
 }
 
-impl Forge {
+impl Werx {
     /// Get the workspaces directory (same as the root directory)
     pub fn workspaces_dir(&self) -> PathBuf {
         self.root.clone()
     }
 }
 
-/// List all workspaces in the Forge
-pub fn list_workspaces(forge: &Forge) -> Result<Vec<Workspace>> {
+/// List all workspaces in the Werx
+pub fn list_workspaces(werx: &Werx) -> Result<Vec<Workspace>> {
     let mut workspaces = Vec::new();
 
     // Get all repositories
-    let repos = repos::list_repos(forge)?;
+    let repos = repos::list_repos(werx)?;
 
     // For each repository, get its worktrees
     for repo in repos {
@@ -97,8 +97,8 @@ pub fn list_workspaces(forge: &Forge) -> Result<Vec<Workspace>> {
             continue;
         }
 
-        let repo_path = forge.repos_dir().join(&repo.dir_name);
-        match list_repo_worktrees(forge, &repo_path, &repo.dir_name) {
+        let repo_path = werx.repos_dir().join(&repo.dir_name);
+        match list_repo_worktrees(werx, &repo_path, &repo.dir_name) {
             Ok(mut repo_workspaces) => {
                 workspaces.append(&mut repo_workspaces);
             }
@@ -120,7 +120,7 @@ pub fn list_workspaces(forge: &Forge) -> Result<Vec<Workspace>> {
 
 /// List worktrees for a specific repository
 fn list_repo_worktrees(
-    forge: &Forge,
+    werx: &Werx,
     repo_path: &PathBuf,
     repo_name: &str,
 ) -> Result<Vec<Workspace>> {
@@ -139,23 +139,23 @@ fn list_repo_worktrees(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_worktree_output(forge, &stdout, repo_name)
+    parse_worktree_output(werx, &stdout, repo_name)
 }
 
 /// Parse the output of `git worktree list --porcelain`
-fn parse_worktree_output(forge: &Forge, output: &str, repo_name: &str) -> Result<Vec<Workspace>> {
+fn parse_worktree_output(werx: &Werx, output: &str, repo_name: &str) -> Result<Vec<Workspace>> {
     let mut workspaces = Vec::new();
-    let forge_root = &forge.root;
+    let werx_root = &werx.root;
 
     let mut current_worktree: Option<(PathBuf, Option<String>, WorkspaceStatus)> = None;
 
     for line in output.lines() {
         if line.starts_with("worktree ") {
-            // Save previous worktree if it exists and is under forge root
+            // Save previous worktree if it exists and is under werx root
             if let Some((path, branch, status)) = current_worktree.take() {
-                if path.starts_with(forge_root) {
+                if path.starts_with(werx_root) {
                     // Extract workspace name from path
-                    if let Some(name) = extract_workspace_name(&path, forge_root, repo_name) {
+                    if let Some(name) = extract_workspace_name(&path, werx_root, repo_name) {
                         workspaces.push(Workspace {
                             name,
                             path,
@@ -194,8 +194,8 @@ fn parse_worktree_output(forge: &Forge, output: &str, repo_name: &str) -> Result
 
     // Don't forget the last worktree
     if let Some((path, branch, status)) = current_worktree {
-        if path.starts_with(forge_root) {
-            if let Some(name) = extract_workspace_name(&path, forge_root, repo_name) {
+        if path.starts_with(werx_root) {
+            if let Some(name) = extract_workspace_name(&path, werx_root, repo_name) {
                 workspaces.push(Workspace {
                     name,
                     path,
@@ -211,10 +211,10 @@ fn parse_worktree_output(forge: &Forge, output: &str, repo_name: &str) -> Result
 }
 
 /// Extract workspace name from the full path
-/// Expected format: <forge_root>/<repo_name>/<workspace_name>
-fn extract_workspace_name(path: &PathBuf, forge_root: &PathBuf, repo_name: &str) -> Option<String> {
-    // Strip forge root
-    let relative = path.strip_prefix(forge_root).ok()?;
+/// Expected format: <werx_root>/<repo_name>/<workspace_name>
+fn extract_workspace_name(path: &PathBuf, werx_root: &PathBuf, repo_name: &str) -> Option<String> {
+    // Strip werx root
+    let relative = path.strip_prefix(werx_root).ok()?;
 
     // Strip repository name
     let relative = relative.strip_prefix(repo_name).ok()?;
@@ -233,22 +233,22 @@ fn extract_workspace_name(path: &PathBuf, forge_root: &PathBuf, repo_name: &str)
 }
 
 /// Find a repository by specification string
-pub fn find_repository(forge: &Forge, repo_spec: &str) -> Result<RepoInfo> {
-    let config = forge.load_config()?;
+pub fn find_repository(werx: &Werx, repo_spec: &str) -> Result<RepoInfo> {
+    let config = werx.load_config()?;
 
     // Parse the repository specification to get the directory name
     let spec = RepoSpec::parse(repo_spec, config.default_provider(), config.protocol())
         .context("Failed to parse repository specification")?;
 
     // Get repository info to determine correct directory name
-    let repos = repos::list_repos(forge)?;
+    let repos = repos::list_repos(werx)?;
     let dir_name = spec.dir_name(&repos);
 
     // Check if repository exists
-    let repo_dir = forge.repos_dir().join(&dir_name);
+    let repo_dir = werx.repos_dir().join(&dir_name);
     if !repo_dir.exists() {
         return Err(anyhow!(
-            "Repository not found: {}\n\nRun 'forge repos list' to see available repositories.",
+            "Repository not found: {}\n\nRun 'werx repos list' to see available repositories.",
             spec.original
         ));
     }
@@ -260,21 +260,21 @@ pub fn find_repository(forge: &Forge, repo_spec: &str) -> Result<RepoInfo> {
 }
 
 /// Detect if the current directory is within a workspace and return its repository info
-pub fn detect_current_workspace(current_dir: &Path, forge: &Forge) -> Result<Option<RepoInfo>> {
-    // Check if current directory is under the forge root
-    if !current_dir.starts_with(&forge.root) {
+pub fn detect_current_workspace(current_dir: &Path, werx: &Werx) -> Result<Option<RepoInfo>> {
+    // Check if current directory is under the werx root
+    if !current_dir.starts_with(&werx.root) {
         return Ok(None);
     }
 
     // Get all workspaces
-    let workspaces = list_workspaces(forge)?;
+    let workspaces = list_workspaces(werx)?;
 
     // Find if current directory is within any workspace
     for workspace in workspaces {
         if current_dir.starts_with(&workspace.path) {
             // Found a workspace that contains the current directory
             // Return the repository info for this workspace
-            let repos = repos::list_repos(forge)?;
+            let repos = repos::list_repos(werx)?;
             if let Some(repo) = repos
                 .into_iter()
                 .find(|r| r.dir_name == workspace.repository)
@@ -288,7 +288,7 @@ pub fn detect_current_workspace(current_dir: &Path, forge: &Forge) -> Result<Opt
 }
 
 /// Interactively select a repository from the available repositories
-pub fn select_repository(forge: &Forge) -> Result<RepoInfo> {
+pub fn select_repository(werx: &Werx) -> Result<RepoInfo> {
     // Check if we're in an interactive terminal
     if !std::io::stdin().is_terminal() {
         return Err(anyhow!(
@@ -298,12 +298,12 @@ pub fn select_repository(forge: &Forge) -> Result<RepoInfo> {
     }
 
     // Get all repositories
-    let repos = repos::list_repos(forge)?;
+    let repos = repos::list_repos(werx)?;
 
     if repos.is_empty() {
         return Err(anyhow!(
-            "No repositories found in Forge.\n\n\
-             Run 'forge add <repo>' to add a repository first."
+            "No repositories found in Werx.\n\n\
+             Run 'werx add <repo>' to add a repository first."
         ));
     }
 
@@ -312,8 +312,8 @@ pub fn select_repository(forge: &Forge) -> Result<RepoInfo> {
 
     if valid_repos.is_empty() {
         return Err(anyhow!(
-            "No valid repositories found in Forge.\n\n\
-             Run 'forge repos list' to see repository status."
+            "No valid repositories found in Werx.\n\n\
+             Run 'werx repos list' to see repository status."
         ));
     }
 
@@ -342,7 +342,7 @@ pub fn select_repository(forge: &Forge) -> Result<RepoInfo> {
 }
 
 /// Select a repository using fuzzy search with skim
-pub fn fuzzy_select_repository(forge: &Forge) -> Result<Option<RepoInfo>> {
+pub fn fuzzy_select_repository(werx: &Werx) -> Result<Option<RepoInfo>> {
     // Check if we're in an interactive terminal
     if !std::io::stdin().is_terminal() {
         return Err(anyhow!(
@@ -352,12 +352,12 @@ pub fn fuzzy_select_repository(forge: &Forge) -> Result<Option<RepoInfo>> {
     }
 
     // Get all repositories
-    let repos = repos::list_repos(forge)?;
+    let repos = repos::list_repos(werx)?;
 
     if repos.is_empty() {
         return Err(anyhow!(
-            "No repositories found in Forge.\n\n\
-             Run 'forge add <repo>' to add a repository first."
+            "No repositories found in Werx.\n\n\
+             Run 'werx add <repo>' to add a repository first."
         ));
     }
 
@@ -366,8 +366,8 @@ pub fn fuzzy_select_repository(forge: &Forge) -> Result<Option<RepoInfo>> {
 
     if valid_repos.is_empty() {
         return Err(anyhow!(
-            "No valid repositories found in Forge.\n\n\
-             Run 'forge repos list' to see repository status."
+            "No valid repositories found in Werx.\n\n\
+             Run 'werx repos list' to see repository status."
         ));
     }
 
@@ -427,7 +427,7 @@ pub fn fuzzy_select_repository(forge: &Forge) -> Result<Option<RepoInfo>> {
 }
 
 /// Prompt the user for a new branch name, with option to change base branch
-pub fn prompt_branch_name(forge: &Forge, repo_info: &RepoInfo) -> Result<(String, String)> {
+pub fn prompt_branch_name(werx: &Werx, repo_info: &RepoInfo) -> Result<(String, String)> {
     // Check if we're in an interactive terminal
     if !std::io::stdin().is_terminal() {
         return Err(anyhow!(
@@ -454,7 +454,7 @@ pub fn prompt_branch_name(forge: &Forge, repo_info: &RepoInfo) -> Result<(String
             }
             BranchPromptResult::ChangeBase => {
                 // Show branch selector
-                if let Some(new_base) = select_branch(forge, repo_info)? {
+                if let Some(new_base) = select_branch(werx, repo_info)? {
                     base_branch = new_base;
                 }
                 // Loop back to prompt for branch name
@@ -538,8 +538,8 @@ fn prompt_branch_name_with_tab_handler(_base_branch: &str) -> Result<BranchPromp
 }
 
 /// Select a branch from the repository using skim fuzzy finder
-fn select_branch(forge: &Forge, repo_info: &RepoInfo) -> Result<Option<String>> {
-    let repo_path = forge.repos_dir().join(&repo_info.dir_name);
+fn select_branch(werx: &Werx, repo_info: &RepoInfo) -> Result<Option<String>> {
+    let repo_path = werx.repos_dir().join(&repo_info.dir_name);
 
     // Get list of branches
     let output = Command::new("git")
@@ -605,8 +605,8 @@ fn select_branch(forge: &Forge, repo_info: &RepoInfo) -> Result<Option<String>> 
 }
 
 /// Generate workspace path in hierarchical format: <repo_name>/<workspace_name>
-pub fn generate_workspace_path(forge: &Forge, repo_name: &str, workspace_name: &str) -> PathBuf {
-    forge.root.join(repo_name).join(workspace_name)
+pub fn generate_workspace_path(werx: &Werx, repo_name: &str, workspace_name: &str) -> PathBuf {
+    werx.root.join(repo_name).join(workspace_name)
 }
 
 /// Prompt the user for a workspace name, with a suggested default
@@ -632,13 +632,13 @@ pub fn prompt_workspace_name(default: &str) -> Result<String> {
 
 /// Create a git worktree for a repository with hierarchical structure
 pub fn create_worktree(
-    forge: &Forge,
+    werx: &Werx,
     repo_info: &RepoInfo,
     workspace_name: &str,
     branch: &str,
 ) -> Result<PathBuf> {
-    // Generate the hierarchical workspace path: <forge-root>/<repo-name>/<workspace-name>
-    let workspace_path = generate_workspace_path(forge, &repo_info.dir_name, workspace_name);
+    // Generate the hierarchical workspace path: <werx-root>/<repo-name>/<workspace-name>
+    let workspace_path = generate_workspace_path(werx, &repo_info.dir_name, workspace_name);
 
     // Check if workspace already exists
     if workspace_path.exists() {
@@ -650,16 +650,16 @@ pub fn create_worktree(
     }
 
     // Create the repository directory if it doesn't exist
-    let repo_dir_in_forge = forge.root.join(&repo_info.dir_name);
-    if !repo_dir_in_forge.exists() {
-        fs::create_dir_all(&repo_dir_in_forge).context(format!(
+    let repo_dir_in_werx = werx.root.join(&repo_info.dir_name);
+    if !repo_dir_in_werx.exists() {
+        fs::create_dir_all(&repo_dir_in_werx).context(format!(
             "Failed to create directory '{}'",
-            repo_dir_in_forge.display()
+            repo_dir_in_werx.display()
         ))?;
     }
 
     // Get the bare repository path
-    let bare_repo_path = forge.repos_dir().join(&repo_info.dir_name);
+    let bare_repo_path = werx.repos_dir().join(&repo_info.dir_name);
 
     // Execute git worktree add
     let output = Command::new("git")
@@ -778,9 +778,9 @@ pub fn confirm_workspace_removal(
 }
 
 /// Remove a workspace and clean up hierarchical directories
-pub fn remove_workspace(forge: &Forge, workspace_path: &str) -> Result<()> {
+pub fn remove_workspace(werx: &Werx, workspace_path: &str) -> Result<()> {
     // Get all workspaces
-    let workspaces = list_workspaces(forge)?;
+    let workspaces = list_workspaces(werx)?;
 
     // Find the workspace by path (support both "repo/workspace" and just "workspace")
     let matching_workspaces: Vec<&Workspace> = workspaces
@@ -795,7 +795,7 @@ pub fn remove_workspace(forge: &Forge, workspace_path: &str) -> Result<()> {
     if matching_workspaces.is_empty() {
         return Err(anyhow!(
             "Workspace not found: {}\n\n\
-             Run 'forge workspace list' to see available workspaces.",
+             Run 'werx workspace list' to see available workspaces.",
             workspace_path
         ));
     }
@@ -818,7 +818,7 @@ pub fn remove_workspace(forge: &Forge, workspace_path: &str) -> Result<()> {
     let workspace = matching_workspaces[0];
 
     // Get the bare repository path
-    let bare_repo_path = forge.repos_dir().join(&workspace.repository);
+    let bare_repo_path = werx.repos_dir().join(&workspace.repository);
 
     // Try to remove the worktree using git
     let output = Command::new("git")
@@ -857,13 +857,13 @@ pub fn remove_workspace(forge: &Forge, workspace_path: &str) -> Result<()> {
     }
 
     // Clean up empty repository directory
-    let repo_dir_in_forge = forge.root.join(&workspace.repository);
-    if repo_dir_in_forge.exists() && repo_dir_in_forge.is_dir() {
+    let repo_dir_in_werx = werx.root.join(&workspace.repository);
+    if repo_dir_in_werx.exists() && repo_dir_in_werx.is_dir() {
         // Check if directory is empty
-        if let Ok(mut entries) = fs::read_dir(&repo_dir_in_forge) {
+        if let Ok(mut entries) = fs::read_dir(&repo_dir_in_werx) {
             if entries.next().is_none() {
                 // Directory is empty, remove it
-                let _ = fs::remove_dir(&repo_dir_in_forge);
+                let _ = fs::remove_dir(&repo_dir_in_werx);
             }
         }
     }
@@ -1129,7 +1129,7 @@ pub fn check_branch_merged(
 /// Get comprehensive status for a workspace
 pub fn get_workspace_status_details(
     workspace: &Workspace,
-    forge: &Forge,
+    werx: &Werx,
 ) -> Result<WorkspaceStatusDetails> {
     let path = &workspace.path;
 
@@ -1163,7 +1163,7 @@ pub fn get_workspace_status_details(
     };
 
     // Get repository path for default branch checking
-    let repo_path = forge.repos_dir().join(&workspace.repository);
+    let repo_path = werx.repos_dir().join(&workspace.repository);
 
     // Get default branch
     let default_branch = get_default_branch(&repo_path).ok();
@@ -1247,7 +1247,7 @@ mod tests {
     fn test_workspace_struct() {
         let workspace = Workspace {
             name: "feature-branch".to_string(),
-            path: PathBuf::from("/tmp/forge/myrepo/feature-branch"),
+            path: PathBuf::from("/tmp/werx/myrepo/feature-branch"),
             repository: "myrepo".to_string(),
             branch: Some("feature-branch".to_string()),
             status: WorkspaceStatus::Clean,
@@ -1260,30 +1260,30 @@ mod tests {
 
     #[test]
     fn test_workspaces_dir() {
-        let forge = Forge {
-            root: PathBuf::from("/tmp/forge"),
+        let werx = Werx {
+            root: PathBuf::from("/tmp/werx"),
         };
 
-        assert_eq!(forge.workspaces_dir(), PathBuf::from("/tmp/forge"));
+        assert_eq!(werx.workspaces_dir(), PathBuf::from("/tmp/werx"));
     }
 
     #[test]
     fn test_parse_worktree_output() {
-        let forge = Forge {
-            root: PathBuf::from("/home/user/forge"),
+        let werx = Werx {
+            root: PathBuf::from("/home/user/werx"),
         };
 
-        let output = r#"worktree /home/user/forge/myrepo/main
+        let output = r#"worktree /home/user/werx/myrepo/main
 HEAD abc123def456
 branch refs/heads/main
 
-worktree /home/user/forge/myrepo/feature-branch
+worktree /home/user/werx/myrepo/feature-branch
 HEAD def789ghi012
 branch refs/heads/feature-branch
 
 "#;
 
-        let workspaces = parse_worktree_output(&forge, output, "myrepo").unwrap();
+        let workspaces = parse_worktree_output(&werx, output, "myrepo").unwrap();
 
         assert_eq!(workspaces.len(), 2);
 
@@ -1299,12 +1299,12 @@ branch refs/heads/feature-branch
     }
 
     #[test]
-    fn test_parse_worktree_output_filters_non_forge_workspaces() {
-        let forge = Forge {
-            root: PathBuf::from("/home/user/forge"),
+    fn test_parse_worktree_output_filters_non_werx_workspaces() {
+        let werx = Werx {
+            root: PathBuf::from("/home/user/werx"),
         };
 
-        let output = r#"worktree /home/user/forge/myrepo/main
+        let output = r#"worktree /home/user/werx/myrepo/main
 HEAD abc123def456
 branch refs/heads/main
 
@@ -1314,78 +1314,78 @@ branch refs/heads/other
 
 "#;
 
-        let workspaces = parse_worktree_output(&forge, output, "myrepo").unwrap();
+        let workspaces = parse_worktree_output(&werx, output, "myrepo").unwrap();
 
-        // Should only include the workspace under forge root
+        // Should only include the workspace under werx root
         assert_eq!(workspaces.len(), 1);
         assert_eq!(workspaces[0].name, "main");
     }
 
     #[test]
     fn test_extract_workspace_name() {
-        let forge_root = PathBuf::from("/home/user/forge");
+        let werx_root = PathBuf::from("/home/user/werx");
 
         // Standard case
-        let path = PathBuf::from("/home/user/forge/myrepo/feature-branch");
-        let name = extract_workspace_name(&path, &forge_root, "myrepo");
+        let path = PathBuf::from("/home/user/werx/myrepo/feature-branch");
+        let name = extract_workspace_name(&path, &werx_root, "myrepo");
         assert_eq!(name, Some("feature-branch".to_string()));
 
         // Multi-level workspace name
-        let path = PathBuf::from("/home/user/forge/myrepo/nested/workspace");
-        let name = extract_workspace_name(&path, &forge_root, "myrepo");
+        let path = PathBuf::from("/home/user/werx/myrepo/nested/workspace");
+        let name = extract_workspace_name(&path, &werx_root, "myrepo");
         assert_eq!(name, Some("nested/workspace".to_string()));
 
-        // Outside forge root
+        // Outside werx root
         let path = PathBuf::from("/home/user/other/myrepo/feature");
-        let name = extract_workspace_name(&path, &forge_root, "myrepo");
+        let name = extract_workspace_name(&path, &werx_root, "myrepo");
         assert_eq!(name, None);
 
         // Wrong repo name
-        let path = PathBuf::from("/home/user/forge/otherrepo/feature");
-        let name = extract_workspace_name(&path, &forge_root, "myrepo");
+        let path = PathBuf::from("/home/user/werx/otherrepo/feature");
+        let name = extract_workspace_name(&path, &werx_root, "myrepo");
         assert_eq!(name, None);
     }
 
     #[test]
-    fn test_detect_current_workspace_outside_forge() {
-        let forge = Forge {
-            root: PathBuf::from("/home/user/forge"),
+    fn test_detect_current_workspace_outside_werx() {
+        let werx = Werx {
+            root: PathBuf::from("/home/user/werx"),
         };
         let current_dir = PathBuf::from("/home/user/other");
 
-        let result = detect_current_workspace(&current_dir, &forge).unwrap();
+        let result = detect_current_workspace(&current_dir, &werx).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
-    fn test_detect_current_workspace_in_forge_root_but_not_in_workspace() {
-        let forge = Forge {
-            root: PathBuf::from("/home/user/forge"),
+    fn test_detect_current_workspace_in_werx_root_but_not_in_workspace() {
+        let werx = Werx {
+            root: PathBuf::from("/home/user/werx"),
         };
-        let current_dir = PathBuf::from("/home/user/forge");
+        let current_dir = PathBuf::from("/home/user/werx");
 
         // This will return None because there are no workspaces
-        let result = detect_current_workspace(&current_dir, &forge).unwrap();
+        let result = detect_current_workspace(&current_dir, &werx).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn test_generate_workspace_path() {
-        let forge = Forge {
-            root: PathBuf::from("/home/user/forge"),
+        let werx = Werx {
+            root: PathBuf::from("/home/user/werx"),
         };
 
-        let path = generate_workspace_path(&forge, "myrepo-abc123", "feature-branch");
+        let path = generate_workspace_path(&werx, "myrepo-abc123", "feature-branch");
         assert_eq!(
             path,
-            PathBuf::from("/home/user/forge/myrepo-abc123/feature-branch")
+            PathBuf::from("/home/user/werx/myrepo-abc123/feature-branch")
         );
 
         // Test with multi-level workspace name
-        let path = generate_workspace_path(&forge, "myrepo-abc123", "nested/workspace");
+        let path = generate_workspace_path(&werx, "myrepo-abc123", "nested/workspace");
         assert_eq!(
             path,
-            PathBuf::from("/home/user/forge/myrepo-abc123/nested/workspace")
+            PathBuf::from("/home/user/werx/myrepo-abc123/nested/workspace")
         );
     }
 
@@ -1394,14 +1394,14 @@ branch refs/heads/other
         let workspaces = vec![
             Workspace {
                 name: "main".to_string(),
-                path: PathBuf::from("/tmp/forge/myrepo/main"),
+                path: PathBuf::from("/tmp/werx/myrepo/main"),
                 repository: "myrepo".to_string(),
                 branch: Some("main".to_string()),
                 status: WorkspaceStatus::Clean,
             },
             Workspace {
                 name: "feature-x".to_string(),
-                path: PathBuf::from("/tmp/forge/myrepo/feature-x"),
+                path: PathBuf::from("/tmp/werx/myrepo/feature-x"),
                 repository: "myrepo".to_string(),
                 branch: Some("feature-x".to_string()),
                 status: WorkspaceStatus::Clean,
@@ -1418,14 +1418,14 @@ branch refs/heads/other
         let workspaces = vec![
             Workspace {
                 name: "feature-a".to_string(),
-                path: PathBuf::from("/tmp/forge/myrepo/feature-a"),
+                path: PathBuf::from("/tmp/werx/myrepo/feature-a"),
                 repository: "myrepo".to_string(),
                 branch: Some("feature-a".to_string()),
                 status: WorkspaceStatus::Clean,
             },
             Workspace {
                 name: "feature-b".to_string(),
-                path: PathBuf::from("/tmp/forge/myrepo/feature-b"),
+                path: PathBuf::from("/tmp/werx/myrepo/feature-b"),
                 repository: "myrepo".to_string(),
                 branch: Some("feature-b".to_string()),
                 status: WorkspaceStatus::Clean,
@@ -1440,7 +1440,7 @@ branch refs/heads/other
     fn test_find_workspace_matches_none() {
         let workspaces = vec![Workspace {
             name: "main".to_string(),
-            path: PathBuf::from("/tmp/forge/myrepo/main"),
+            path: PathBuf::from("/tmp/werx/myrepo/main"),
             repository: "myrepo".to_string(),
             branch: Some("main".to_string()),
             status: WorkspaceStatus::Clean,
@@ -1454,7 +1454,7 @@ branch refs/heads/other
     fn test_find_workspace_matches_case_insensitive() {
         let workspaces = vec![Workspace {
             name: "main".to_string(),
-            path: PathBuf::from("/tmp/forge/MyRepo/main"),
+            path: PathBuf::from("/tmp/werx/MyRepo/main"),
             repository: "MyRepo".to_string(),
             branch: Some("main".to_string()),
             status: WorkspaceStatus::Clean,
