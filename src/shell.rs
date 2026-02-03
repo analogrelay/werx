@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 /// Output shell initialization code for the specified shell
 pub fn cmd_shell_init(shell: &str) -> Result<()> {
@@ -40,9 +40,11 @@ mod tests {
     fn test_shell_init_unsupported() {
         let result = cmd_shell_init("fish");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Unsupported shell"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unsupported shell")
+        );
     }
 }

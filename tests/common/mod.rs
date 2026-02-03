@@ -19,6 +19,7 @@ pub fn run_werx(args: &[&str], env: &[(&str, &str)]) -> std::process::Output {
 ///
 /// This creates a bare repository with an initial commit on the specified branch,
 /// suitable for use with `werx add` without network access.
+#[allow(dead_code)]
 pub fn create_test_bare_repo(path: &Path, default_branch: &str) {
     // Create the bare repository
     let output = Command::new("git")
@@ -156,6 +157,7 @@ pub fn create_test_bare_repo(path: &Path, default_branch: &str) {
 }
 
 /// Check if tmux is available on this system
+#[allow(dead_code)]
 pub fn tmux_available() -> bool {
     Command::new("tmux")
         .args(["-V"])
@@ -165,6 +167,7 @@ pub fn tmux_available() -> bool {
 }
 
 /// Check if the werx-agents tmux session exists
+#[allow(dead_code)]
 pub fn werx_agents_session_exists() -> bool {
     Command::new("tmux")
         .args(["has-session", "-t", "werx-agents"])
@@ -174,6 +177,7 @@ pub fn werx_agents_session_exists() -> bool {
 }
 
 /// Kill the werx-agents tmux session if it exists (for test cleanup)
+#[allow(dead_code)]
 pub fn cleanup_werx_agents_session() {
     if werx_agents_session_exists() {
         let _ = Command::new("tmux")
@@ -193,6 +197,7 @@ pub fn assert_success(output: &std::process::Output) {
 }
 
 /// Assert that a command failed
+#[allow(dead_code)]
 pub fn assert_failure(output: &std::process::Output) {
     if output.status.success() {
         eprintln!("Command succeeded unexpectedly");

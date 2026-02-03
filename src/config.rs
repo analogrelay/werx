@@ -65,7 +65,7 @@ impl Default for ProviderConfig {
 }
 
 /// Configuration for a specific agent provider
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentProviderConfig {
     /// The command to run for this agent
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,29 +76,12 @@ pub struct AgentProviderConfig {
     pub args: Vec<String>,
 }
 
-impl Default for AgentProviderConfig {
-    fn default() -> Self {
-        AgentProviderConfig {
-            command: None,
-            args: Vec::new(),
-        }
-    }
-}
-
 /// Per-repository agent preferences
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RepoAgentConfig {
     /// Preferred agent for this repository
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preferred_agent: Option<String>,
-}
-
-impl Default for RepoAgentConfig {
-    fn default() -> Self {
-        RepoAgentConfig {
-            preferred_agent: None,
-        }
-    }
 }
 
 /// Agent configuration section
@@ -118,7 +101,7 @@ pub struct AgentConfig {
 }
 
 /// Werx configuration stored in .werx/config.toml
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     /// Provider settings
     #[serde(default)]
@@ -127,15 +110,6 @@ pub struct Config {
     /// Agent settings
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agents: Option<AgentConfig>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            provider: ProviderConfig::default(),
-            agents: None,
-        }
-    }
 }
 
 impl Config {
@@ -157,13 +131,13 @@ impl Config {
     /// Save config to a file
     pub fn save(&self, path: &Path) -> Result<()> {
         // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                fs::create_dir_all(parent).context(format!(
-                    "Failed to create config directory '{}'",
-                    parent.display()
-                ))?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent).context(format!(
+                "Failed to create config directory '{}'",
+                parent.display()
+            ))?;
         }
 
         let contents = toml::to_string_pretty(self).context("Failed to serialize config")?;

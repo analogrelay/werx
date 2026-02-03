@@ -1,10 +1,10 @@
 //! Agent management operations: list, status, attach, kill.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::path::PathBuf;
 
-use crate::workspace::{list_workspaces, remove_workspace};
 use crate::Werx;
+use crate::workspace::{list_workspaces, remove_workspace};
 
 use super::tmux::{
     tmux_attach, tmux_is_available, tmux_kill_window, tmux_list_windows, tmux_session_exists,
@@ -136,11 +136,9 @@ pub fn kill_agent(werx: &Werx, agent_name: &str, cleanup: bool) -> Result<bool> 
     let session_closed = tmux_kill_window(agent_name)?;
 
     // Clean up worktree if requested
-    if cleanup {
-        if let Some(ws) = workspace {
-            let workspace_path = format!("{}/{}", ws.repository, ws.name);
-            remove_workspace(werx, &workspace_path)?;
-        }
+    if cleanup && let Some(ws) = workspace {
+        let workspace_path = format!("{}/{}", ws.repository, ws.name);
+        remove_workspace(werx, &workspace_path)?;
     }
 
     Ok(session_closed)

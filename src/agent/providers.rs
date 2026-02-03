@@ -2,7 +2,7 @@
 //!
 //! Detects available coding agents by checking for executables in PATH.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
@@ -258,9 +258,11 @@ mod tests {
         let providers = detect_providers();
         assert_eq!(providers.len(), 3);
 
-        assert!(providers
-            .iter()
-            .any(|p| p.agent_type == AgentType::OpenCode));
+        assert!(
+            providers
+                .iter()
+                .any(|p| p.agent_type == AgentType::OpenCode)
+        );
         assert!(providers.iter().any(|p| p.agent_type == AgentType::Claude));
         assert!(providers.iter().any(|p| p.agent_type == AgentType::Copilot));
     }

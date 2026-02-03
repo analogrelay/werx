@@ -2,15 +2,15 @@
 //!
 //! Handles creating worktrees and spawning agents in tmux sessions.
 
-use anyhow::{anyhow, Context, Result};
-use std::path::PathBuf;
+use anyhow::{Context, Result, anyhow};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::workspace::generate_workspace_path;
 use crate::{RepoInfo, Werx};
 
 use super::names::generate_agent_name;
-use super::providers::{detect_providers, get_default_provider, AgentProvider};
+use super::providers::{AgentProvider, detect_providers, get_default_provider};
 use super::tmux::{
     tmux_create_session, tmux_create_window, tmux_is_available, tmux_list_windows, tmux_send_keys,
     tmux_session_exists,
@@ -301,7 +301,7 @@ fn create_agent_worktree(
 }
 
 /// Create a tmux window for the agent
-fn create_agent_window(agent_name: &str, working_dir: &PathBuf) -> Result<()> {
+fn create_agent_window(agent_name: &str, working_dir: &Path) -> Result<()> {
     if tmux_session_exists() {
         // Add a new window to existing session
         tmux_create_window(agent_name, working_dir)?;

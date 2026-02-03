@@ -3,13 +3,13 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 use werx::{
-    add_repo, attach_to_agent, check_workspace_status, cmd_shell_init, confirm_workspace_removal,
-    create_repo, create_worktree, detect_current_workspace, detect_providers,
-    emit_change_directory, find_agent, find_repository, fuzzy_select_repository,
-    get_default_provider, get_workspace_status_details, initialize_werx, kill_agent, list_agents,
-    list_repos, list_workspaces, prompt_branch_name, prompt_workspace_name, remove_repo,
-    remove_workspace, resolve_werx_path, select_repository, select_workspace_with_query,
-    spawn_agent, AgentType, SpawnOptions, Werx, WorkspaceStatusDetails,
+    AgentType, SpawnOptions, Werx, WorkspaceStatusDetails, add_repo, attach_to_agent,
+    check_workspace_status, cmd_shell_init, confirm_workspace_removal, create_repo,
+    create_worktree, detect_current_workspace, detect_providers, emit_change_directory, find_agent,
+    find_repository, fuzzy_select_repository, get_default_provider, get_workspace_status_details,
+    initialize_werx, kill_agent, list_agents, list_repos, list_workspaces, prompt_branch_name,
+    prompt_workspace_name, remove_repo, remove_workspace, resolve_werx_path, select_repository,
+    select_workspace_with_query, spawn_agent,
 };
 
 /// Werx - Manage your code repositories and workspaces
@@ -562,7 +562,7 @@ fn cmd_list(format: String) -> Result<()> {
             let json = serde_json::to_string_pretty(&repos)?;
             println!("{}", json);
         }
-        "text" | _ => {
+        _ => {
             println!();
             println!("Repositories in Werx:");
             println!();
@@ -705,7 +705,7 @@ fn cmd_workspace_list(format: String) -> Result<()> {
             let json = serde_json::to_string_pretty(&workspaces)?;
             println!("{}", json);
         }
-        "text" | _ => {
+        _ => {
             println!();
             println!("Workspaces in Werx:");
             println!();
@@ -1439,7 +1439,7 @@ fn cmd_agent_list(format: String) -> Result<()> {
             let json = serde_json::to_string_pretty(&agents)?;
             println!("{}", json);
         }
-        "text" | _ => {
+        _ => {
             println!();
             println!("Running Agents:");
             println!();
@@ -1494,7 +1494,7 @@ fn cmd_agent_status(agent_name: Option<String>, format: String) -> Result<()> {
             let json = serde_json::to_string_pretty(&agents)?;
             println!("{}", json);
         }
-        "text" | _ => {
+        _ => {
             println!();
             for agent in &agents {
                 println!("Agent: {}", agent.name);

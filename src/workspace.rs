@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context, Result};
-use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
-use fuzzy_matcher::skim::SkimMatcherV2;
+use anyhow::{Context, Result, anyhow};
+use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use serde::Serialize;
 use skim::prelude::*;
 use std::fs;
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-use crate::{repos, RepoInfo, RepoSpec, Werx};
+use crate::{RepoInfo, RepoSpec, Werx, repos};
 
 /// Workspace information
 #[derive(Debug, Clone, Serialize)]
@@ -119,11 +119,7 @@ pub fn list_workspaces(werx: &Werx) -> Result<Vec<Workspace>> {
 }
 
 /// List worktrees for a specific repository
-fn list_repo_worktrees(
-    werx: &Werx,
-    repo_path: &PathBuf,
-    repo_name: &str,
-) -> Result<Vec<Workspace>> {
+fn list_repo_worktrees(werx: &Werx, repo_path: &Path, repo_name: &str) -> Result<Vec<Workspace>> {
     let output = Command::new("git")
         .arg("-C")
         .arg(repo_path)
@@ -152,18 +148,18 @@ fn parse_worktree_output(werx: &Werx, output: &str, repo_name: &str) -> Result<V
     for line in output.lines() {
         if line.starts_with("worktree ") {
             // Save previous worktree if it exists and is under werx root
-            if let Some((path, branch, status)) = current_worktree.take() {
-                if path.starts_with(werx_root) {
-                    // Extract workspace name from path
-                    if let Some(name) = extract_workspace_name(&path, werx_root, repo_name) {
-                        workspaces.push(Workspace {
-                            name,
-                            path,
-                            repository: repo_name.to_string(),
-                            branch,
-                            status,
-                        });
-                    }
+            if let Some((path, branch, status)) = current_worktree.take()
+                && path.starts_with(werx_root)
+            {
+                // Extract workspace name from path
+                if let Some(name) = extract_workspace_name(&path, werx_root, repo_name) {
+                    workspaces.push(Workspace {
+                        name,
+                        path,
+                        repository: repo_name.to_string(),
+                        branch,
+                        status,
+                    });
                 }
             }
 
@@ -185,26 +181,25 @@ fn parse_worktree_output(werx: &Werx, output: &str, repo_name: &str) -> Result<V
             if let Some((_, _, ref mut status)) = current_worktree {
                 *status = WorkspaceStatus::Locked;
             }
-        } else if line.starts_with("prunable") {
-            if let Some((_, _, ref mut status)) = current_worktree {
-                *status = WorkspaceStatus::Prunable;
-            }
+        } else if line.starts_with("prunable")
+            && let Some((_, _, ref mut status)) = current_worktree
+        {
+            *status = WorkspaceStatus::Prunable;
         }
     }
 
     // Don't forget the last worktree
-    if let Some((path, branch, status)) = current_worktree {
-        if path.starts_with(werx_root) {
-            if let Some(name) = extract_workspace_name(&path, werx_root, repo_name) {
-                workspaces.push(Workspace {
-                    name,
-                    path,
-                    repository: repo_name.to_string(),
-                    branch,
-                    status,
-                });
-            }
-        }
+    if let Some((path, branch, status)) = current_worktree
+        && path.starts_with(werx_root)
+        && let Some(name) = extract_workspace_name(&path, werx_root, repo_name)
+    {
+        workspaces.push(Workspace {
+            name,
+            path,
+            repository: repo_name.to_string(),
+            branch,
+            status,
+        });
     }
 
     Ok(workspaces)
@@ -212,7 +207,7 @@ fn parse_worktree_output(werx: &Werx, output: &str, repo_name: &str) -> Result<V
 
 /// Extract workspace name from the full path
 /// Expected format: <werx_root>/<repo_name>/<workspace_name>
-fn extract_workspace_name(path: &PathBuf, werx_root: &PathBuf, repo_name: &str) -> Option<String> {
+fn extract_workspace_name(path: &Path, werx_root: &Path, repo_name: &str) -> Option<String> {
     // Strip werx root
     let relative = path.strip_prefix(werx_root).ok()?;
 
@@ -479,7 +474,7 @@ fn prompt_branch_name_with_tab_handler(_base_branch: &str) -> Result<BranchPromp
         execute,
         terminal::{disable_raw_mode, enable_raw_mode},
     };
-    use std::io::{stdout, Write};
+    use std::io::{Write, stdout};
 
     let theme = ColorfulTheme::default();
 
@@ -491,47 +486,47 @@ fn prompt_branch_name_with_tab_handler(_base_branch: &str) -> Result<BranchPromp
     let mut input = String::new();
 
     loop {
-        if event::poll(std::time::Duration::from_millis(100))? {
-            if let Event::Key(key_event) = event::read()? {
-                match key_event.code {
-                    KeyCode::Tab => {
-                        disable_raw_mode()?;
-                        println!();
-                        return Ok(BranchPromptResult::ChangeBase);
+        if event::poll(std::time::Duration::from_millis(100))?
+            && let Event::Key(key_event) = event::read()?
+        {
+            match key_event.code {
+                KeyCode::Tab => {
+                    disable_raw_mode()?;
+                    println!();
+                    return Ok(BranchPromptResult::ChangeBase);
+                }
+                KeyCode::Enter => {
+                    disable_raw_mode()?;
+                    println!();
+                    let name = input.trim().to_string();
+                    if name.is_empty() {
+                        return Err(anyhow!("Branch name cannot be empty"));
                     }
-                    KeyCode::Enter => {
-                        disable_raw_mode()?;
-                        println!();
-                        let name = input.trim().to_string();
-                        if name.is_empty() {
-                            return Err(anyhow!("Branch name cannot be empty"));
-                        }
-                        return Ok(BranchPromptResult::BranchName(name));
-                    }
-                    KeyCode::Char(c) => {
-                        if key_event.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
-                            disable_raw_mode()?;
-                            return Err(anyhow!("Cancelled"));
-                        }
-                        input.push(c);
-                        print!("{}", c);
-                        stdout().flush()?;
-                    }
-                    KeyCode::Backspace => {
-                        if !input.is_empty() {
-                            input.pop();
-                            execute!(stdout(), cursor::MoveLeft(1))?;
-                            print!(" ");
-                            execute!(stdout(), cursor::MoveLeft(1))?;
-                            stdout().flush()?;
-                        }
-                    }
-                    KeyCode::Esc => {
+                    return Ok(BranchPromptResult::BranchName(name));
+                }
+                KeyCode::Char(c) => {
+                    if key_event.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
                         disable_raw_mode()?;
                         return Err(anyhow!("Cancelled"));
                     }
-                    _ => {}
+                    input.push(c);
+                    print!("{}", c);
+                    stdout().flush()?;
                 }
+                KeyCode::Backspace => {
+                    if !input.is_empty() {
+                        input.pop();
+                        execute!(stdout(), cursor::MoveLeft(1))?;
+                        print!(" ");
+                        execute!(stdout(), cursor::MoveLeft(1))?;
+                        stdout().flush()?;
+                    }
+                }
+                KeyCode::Esc => {
+                    disable_raw_mode()?;
+                    return Err(anyhow!("Cancelled"));
+                }
+                _ => {}
             }
         }
     }
@@ -860,11 +855,11 @@ pub fn remove_workspace(werx: &Werx, workspace_path: &str) -> Result<()> {
     let repo_dir_in_werx = werx.root.join(&workspace.repository);
     if repo_dir_in_werx.exists() && repo_dir_in_werx.is_dir() {
         // Check if directory is empty
-        if let Ok(mut entries) = fs::read_dir(&repo_dir_in_werx) {
-            if entries.next().is_none() {
-                // Directory is empty, remove it
-                let _ = fs::remove_dir(&repo_dir_in_werx);
-            }
+        if let Ok(mut entries) = fs::read_dir(&repo_dir_in_werx)
+            && entries.next().is_none()
+        {
+            // Directory is empty, remove it
+            let _ = fs::remove_dir(&repo_dir_in_werx);
         }
     }
 
@@ -1003,22 +998,22 @@ pub fn select_workspace_with_query(
     }
 
     // If a query is provided, try to find matches
-    if let Some(ref q) = query {
-        if !q.is_empty() {
-            let matches = find_workspace_matches(&workspaces, q);
+    if let Some(ref q) = query
+        && !q.is_empty()
+    {
+        let matches = find_workspace_matches(&workspaces, q);
 
-            // If exactly one match, return it directly (no interactive selection)
-            if matches.len() == 1 {
-                return Ok(Some(matches[0].clone()));
-            }
-
-            // If no matches, return an error
-            if matches.is_empty() {
-                return Err(anyhow!("No workspaces match query: '{}'", q));
-            }
-
-            // Multiple matches - fall through to fuzzy search with pre-filled query
+        // If exactly one match, return it directly (no interactive selection)
+        if matches.len() == 1 {
+            return Ok(Some(matches[0].clone()));
         }
+
+        // If no matches, return an error
+        if matches.is_empty() {
+            return Err(anyhow!("No workspaces match query: '{}'", q));
+        }
+
+        // Multiple matches - fall through to fuzzy search with pre-filled query
     }
 
     // Launch interactive fuzzy search (with query pre-filled if provided)
@@ -1047,10 +1042,10 @@ pub fn check_branch_pushed(workspace_path: &Path, branch: &str) -> Result<bool> 
     for line in stdout.lines() {
         let trimmed = line.trim();
         // Remote branches are in format: origin/branch-name or remote/branch-name
-        if let Some(remote_branch) = trimmed.split('/').nth(1) {
-            if remote_branch == branch {
-                return Ok(true);
-            }
+        if let Some(remote_branch) = trimmed.split('/').nth(1)
+            && remote_branch == branch
+        {
+            return Ok(true);
         }
     }
 
@@ -1067,14 +1062,14 @@ pub fn get_default_branch(repo_path: &Path) -> Result<String> {
         .arg("refs/remotes/origin/HEAD")
         .output();
 
-    if let Ok(output) = output {
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let branch_ref = stdout.trim();
-            // Extract branch name from refs/remotes/origin/main
-            if let Some(branch_name) = branch_ref.strip_prefix("refs/remotes/origin/") {
-                return Ok(branch_name.to_string());
-            }
+    if let Ok(output) = output
+        && output.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let branch_ref = stdout.trim();
+        // Extract branch name from refs/remotes/origin/main
+        if let Some(branch_name) = branch_ref.strip_prefix("refs/remotes/origin/") {
+            return Ok(branch_name.to_string());
         }
     }
 
@@ -1088,10 +1083,10 @@ pub fn get_default_branch(repo_path: &Path) -> Result<String> {
             .arg(format!("refs/remotes/origin/{}", default_name))
             .output();
 
-        if let Ok(output) = output {
-            if output.status.success() {
-                return Ok(default_name.to_string());
-            }
+        if let Ok(output) = output
+            && output.status.success()
+        {
+            return Ok(default_name.to_string());
         }
     }
 

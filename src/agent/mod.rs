@@ -12,18 +12,18 @@ mod providers;
 mod spawn;
 mod tmux;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub use manage::{attach_to_agent, find_agent, get_agent_status, kill_agent, list_agents};
 pub use names::generate_agent_name;
-pub use providers::{detect_providers, get_default_provider, AgentProvider};
+pub use providers::{AgentProvider, detect_providers, get_default_provider};
 pub use spawn::spawn_agent;
 pub use tmux::{
-    get_agent_status_from_tmux, tmux_attach, tmux_create_session, tmux_create_window,
+    TmuxSession, get_agent_status_from_tmux, tmux_attach, tmux_create_session, tmux_create_window,
     tmux_is_available, tmux_kill_window, tmux_list_windows, tmux_select_window,
-    tmux_session_exists, TmuxSession,
+    tmux_session_exists,
 };
 
 /// The name of the tmux session used for all werx agents

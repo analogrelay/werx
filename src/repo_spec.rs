@@ -122,7 +122,11 @@ impl RepoSpec {
 /// - `NoConflict`: Directory doesn't exist
 /// - `Duplicate`: Directory exists and contains the same repository (same normalized URL)
 /// - `Different`: Directory exists and contains a different repository
-fn check_dir_conflict(dir_name: &str, spec: &RepoSpec, existing_repos: &[crate::RepoInfo]) -> ConflictResult {
+fn check_dir_conflict(
+    dir_name: &str,
+    spec: &RepoSpec,
+    existing_repos: &[crate::RepoInfo],
+) -> ConflictResult {
     // Find if any existing repo has this directory name
     if let Some(existing) = existing_repos.iter().find(|r| r.dir_name == dir_name) {
         // Directory exists - check if it's the same repository
@@ -320,15 +324,11 @@ fn extract_repo_name(url: &str) -> Result<String> {
     // Get the last path component
     let name = path
         .split('/')
-        .last()
+        .next_back()
         .ok_or_else(|| anyhow!("Cannot extract repository name from URL"))?;
 
     // Remove .git suffix if present
-    let name = if name.ends_with(".git") {
-        &name[..name.len() - 4]
-    } else {
-        name
-    };
+    let name = name.strip_suffix(".git").unwrap_or(name);
 
     if name.is_empty() {
         return Err(anyhow!("Empty repository name"));

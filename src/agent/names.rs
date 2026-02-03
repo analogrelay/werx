@@ -66,7 +66,7 @@ fn to_snake_case(s: &str) -> String {
             if !result.is_empty() && !prev_was_separator {
                 // Only add underscore if next char isn't also uppercase
                 // or if it's the last uppercase in a sequence
-                let next_is_lower = chars.peek().map_or(false, |next| next.is_lowercase());
+                let next_is_lower = chars.peek().is_some_and(|next| next.is_lowercase());
                 if next_is_lower {
                     result.push('_');
                 }

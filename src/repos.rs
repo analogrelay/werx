@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use crate::{Werx, Protocol, RepoSpec};
+use crate::{Protocol, RepoSpec, Werx};
 
 /// Repository information for listing
 #[derive(Debug, Clone, Serialize)]
@@ -172,7 +172,8 @@ fn get_repo_info(repo_path: &Path, dir_name: String) -> RepoInfo {
     };
 
     // Normalize the URL for comparison
-    let normalized_url = crate::repo_spec::normalize_url(&clone_url).unwrap_or_else(|_| clone_url.clone());
+    let normalized_url =
+        crate::repo_spec::normalize_url(&clone_url).unwrap_or_else(|_| clone_url.clone());
 
     // Try to get default branch
     let default_branch = get_default_branch(repo_path).ok();
@@ -333,37 +334,45 @@ pub struct CreatedRepoInfo {
 /// Parse and validate a repository specification in owner/repo format
 pub fn parse_repo_spec(spec: &str) -> Result<(String, String)> {
     let parts: Vec<&str> = spec.split('/').collect();
-    
+
     if parts.len() != 2 {
         return Err(anyhow!(
             "Invalid repository specification: '{}'\n\n\
              Expected format: owner/repo\n\
-             Examples: mycompany/awesome-project, alice/utils"
-            , spec
+             Examples: mycompany/awesome-project, alice/utils",
+            spec
         ));
     }
-    
+
     let owner = parts[0].trim();
     let name = parts[1].trim();
-    
+
     // Validate owner format (alphanumeric and hyphens)
-    if owner.is_empty() || !owner.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+    if owner.is_empty()
+        || !owner
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err(anyhow!(
             "Invalid owner format: '{}'\n\n\
              Owner must contain only alphanumeric characters, hyphens, and underscores.",
             owner
         ));
     }
-    
+
     // Validate repo name format
-    if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.') {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
         return Err(anyhow!(
             "Invalid repository name format: '{}'\n\n\
              Repository name must contain only alphanumeric characters, hyphens, underscores, and dots.",
             name
         ));
     }
-    
+
     Ok((owner.to_string(), name.to_string()))
 }
 
@@ -371,54 +380,58 @@ pub fn parse_repo_spec(spec: &str) -> Result<(String, String)> {
 pub fn create_repo(werx: &Werx, repo_spec: &str) -> Result<CreatedRepoInfo> {
     // Parse and validate the owner/repo format
     let (owner, name) = parse_repo_spec(repo_spec)?;
-    
+
     // Load config for protocol (needed for generating clone URL)
     let config = werx.load_config()?;
-    
+
     // Get existing repositories for conflict detection
     let existing_repos = list_repos(werx)?;
-    
+
     // Generate the expected clone URL for duplicate detection
-    let expected_url = generate_origin_url(&owner, &name, config.protocol(), config.default_provider());
+    let expected_url =
+        generate_origin_url(&owner, &name, config.protocol(), config.default_provider());
     let expected_normalized = crate::repo_spec::normalize_url(&expected_url)
         .unwrap_or_else(|_| expected_url.to_lowercase());
-    
+
     // Check for duplicate by checking if any existing repo has a matching normalized URL
     for repo in &existing_repos {
         if repo.normalized_url == expected_normalized {
             return Err(anyhow!(
                 "Repository already exists: {}/{}\n  Location: .werx/repos/{}",
-                owner, name, repo.dir_name
+                owner,
+                name,
+                repo.dir_name
             ));
         }
     }
-    
+
     // Compute directory name using progressive qualification
     let dir_name = compute_create_dir_name(&name, &owner, &existing_repos);
-    
+
     // Create the bare repository
     let repo_dir = werx.repos_dir().join(&dir_name);
-    
+
     println!("Creating repository: {}/{}", owner, name);
-    
+
     // Initialize bare repository
     init_bare_repo(&repo_dir)?;
-    
+
     // Configure remote origin URL for future publishing
-    let clone_url = generate_origin_url(&owner, &name, config.protocol(), config.default_provider());
+    let clone_url =
+        generate_origin_url(&owner, &name, config.protocol(), config.default_provider());
     if let Err(e) = configure_origin(&repo_dir, &clone_url) {
         // Clean up on failure
         let _ = fs::remove_dir_all(&repo_dir);
         return Err(e);
     }
-    
+
     // Initialize main branch with empty commit
     if let Err(e) = init_main_branch(&repo_dir) {
         // Clean up on failure
         let _ = fs::remove_dir_all(&repo_dir);
         return Err(e);
     }
-    
+
     Ok(CreatedRepoInfo {
         dir_name,
         owner,
@@ -434,13 +447,13 @@ fn compute_create_dir_name(name: &str, owner: &str, existing_repos: &[RepoInfo])
     if !existing_repos.iter().any(|r| r.dir_name == simple_name) {
         return simple_name;
     }
-    
+
     // Try owner-qualified name
     let qualified_name = format!("{}-{}", owner.to_lowercase(), name);
     if !existing_repos.iter().any(|r| r.dir_name == qualified_name) {
         return qualified_name;
     }
-    
+
     // Use hash-qualified name
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -448,7 +461,7 @@ fn compute_create_dir_name(name: &str, owner: &str, existing_repos: &[RepoInfo])
     let result = hasher.finalize();
     let hash = format!("{:x}", result);
     let hash_suffix = &hash[..6];
-    
+
     format!("{}-{}-{}", owner.to_lowercase(), name, hash_suffix)
 }
 
@@ -459,7 +472,7 @@ fn init_bare_repo(dest: &Path) -> Result<()> {
         "Failed to create repository directory '{}'",
         dest.display()
     ))?;
-    
+
     let output = Command::new("git")
         .arg("init")
         .arg("--bare")
@@ -481,9 +494,14 @@ fn init_bare_repo(dest: &Path) -> Result<()> {
 }
 
 /// Generate origin URL for future publishing
-fn generate_origin_url(owner: &str, name: &str, protocol: Option<crate::Protocol>, default_provider: &str) -> String {
+fn generate_origin_url(
+    owner: &str,
+    name: &str,
+    protocol: Option<crate::Protocol>,
+    default_provider: &str,
+) -> String {
     let provider = default_provider.to_lowercase();
-    
+
     match (provider.as_str(), protocol) {
         ("github", Some(crate::Protocol::Ssh)) => format!("git@github.com:{}/{}.git", owner, name),
         ("github", _) => format!("https://github.com/{}/{}.git", owner, name),
@@ -527,14 +545,14 @@ fn init_main_branch(repo_path: &Path) -> Result<()> {
         .arg("/dev/null")
         .output()
         .context("Failed to create empty tree")?;
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow!("Failed to create empty tree:\n{}", stderr));
     }
-    
+
     let tree_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    
+
     // Create a commit with the empty tree
     let output = Command::new("git")
         .arg("-C")
@@ -545,14 +563,14 @@ fn init_main_branch(repo_path: &Path) -> Result<()> {
         .arg("Initial commit")
         .output()
         .context("Failed to create initial commit")?;
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow!("Failed to create initial commit:\n{}", stderr));
     }
-    
+
     let commit_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    
+
     // Update refs/heads/main to point to the new commit
     let output = Command::new("git")
         .arg("-C")
@@ -562,12 +580,12 @@ fn init_main_branch(repo_path: &Path) -> Result<()> {
         .arg(&commit_hash)
         .output()
         .context("Failed to update main ref")?;
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow!("Failed to update main branch:\n{}", stderr));
     }
-    
+
     // Set HEAD to point to main
     let output = Command::new("git")
         .arg("-C")
@@ -577,12 +595,12 @@ fn init_main_branch(repo_path: &Path) -> Result<()> {
         .arg("refs/heads/main")
         .output()
         .context("Failed to set HEAD")?;
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow!("Failed to set HEAD:\n{}", stderr));
     }
-    
+
     Ok(())
 }
 

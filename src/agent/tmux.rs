@@ -3,7 +3,7 @@
 //! Provides functions for creating and managing tmux sessions
 //! that host agent instances.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use std::process::Command;
 
 use super::{AgentStatus, WERX_AGENTS_SESSION};
