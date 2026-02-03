@@ -1,6 +1,6 @@
 ## Context
 
-Forge is preparing for its initial preview release. This requires establishing CI/CD pipelines and distribution channels so users can easily install and trust the tool. The project uses Rust and targets macOS as the primary platform, with Linux as secondary.
+Werx is preparing for its initial preview release. This requires establishing CI/CD pipelines and distribution channels so users can easily install and trust the tool. The project uses Rust and targets macOS as the primary platform, with Linux as secondary.
 
 ## Goals / Non-Goals
 
@@ -14,6 +14,7 @@ Forge is preparing for its initial preview release. This requires establishing C
 - Windows support (not in scope for preview release)
 - Automated changelog generation (manual for now)
 - Signed binaries or notarization (future consideration)
+- Crates.io publishing (deferred to future release)
 
 ## Decisions
 
@@ -37,15 +38,10 @@ Pre-built binaries are attached to GitHub Releases for direct download. This is 
 ### Nix Packaging: Flake with rustPlatform
 Using `rustPlatform.buildRustPackage` is the standard approach for Rust projects in Nix. A flake provides reproducibility and easy consumption.
 
-### Crates.io: Standard Publishing
-Publishing to crates.io enables `cargo install forge-cli` for Rust developers who prefer this method.
-
 ## Risks / Trade-offs
 
 - **Cross-compilation complexity** → Mitigated by using GitHub-hosted runners for native builds on each platform
-- **Crate name availability** → `forge` may be taken on crates.io; may need alternative name like `forge-cli`
 
 ## Open Questions
 
-- What should the crate name be on crates.io? (Need to verify availability)
 - What minimum supported Rust version (MSRV) should be documented?

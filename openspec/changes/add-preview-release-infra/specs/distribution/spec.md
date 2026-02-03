@@ -5,33 +5,19 @@
 The system SHALL be installable via Nix flake for users of Nix, NixDarwin, and NixOS.
 
 #### Scenario: Install via nix profile
-- **WHEN** a user runs `nix profile install github:analogrelay/forge`
-- **THEN** the forge binary is installed to their Nix profile
+- **WHEN** a user runs `nix profile install github:analogrelay/werx`
+- **THEN** the werx binary is installed to their Nix profile
 - **AND** the binary is functional
 
 #### Scenario: Run without installing
-- **WHEN** a user runs `nix run github:analogrelay/forge`
-- **THEN** the forge binary executes directly
+- **WHEN** a user runs `nix run github:analogrelay/werx`
+- **THEN** the werx binary executes directly
 - **AND** no permanent installation is made
 
 #### Scenario: Development shell available
 - **WHEN** a user runs `nix develop` in the repository
 - **THEN** a development shell is provided with all required build tools
 - **AND** the Rust toolchain is available
-
-### Requirement: Crates.io Distribution
-
-The system SHALL be published to crates.io for installation via `cargo install`.
-
-#### Scenario: Install via cargo
-- **WHEN** a user runs `cargo install <crate-name>`
-- **THEN** the forge binary is built from source and installed
-- **AND** the binary is functional
-
-#### Scenario: Package metadata is complete
-- **WHEN** the crate is viewed on crates.io
-- **THEN** the description, license, and repository link are displayed
-- **AND** the crate documentation link is available
 
 ### Requirement: Binary Distribution
 

@@ -21,6 +21,34 @@ The system SHALL provide automated continuous integration via GitHub Actions tha
 - **THEN** tests execute on both Linux and macOS runners
 - **AND** tests execute on both x86_64 and aarch64 architectures where available
 
+#### Scenario: Warnings treated as errors
+- **WHEN** any CI build step compiles Rust code
+- **THEN** the build MUST use `RUSTFLAGS="-D warnings"`
+- **AND** the build fails if any compiler warnings are emitted
+
+### Requirement: Local Check Script
+
+The system SHALL provide a `script/check` bash script that runs the same validation steps as CI, allowing developers to verify their changes locally before pushing.
+
+#### Scenario: Script exists with proper shebang
+- **WHEN** a developer inspects `script/check`
+- **THEN** the file exists
+- **AND** the file starts with `#!/usr/bin/env bash` shebang
+- **AND** the file is executable
+
+#### Scenario: Script runs all validation steps
+- **WHEN** a developer runs `script/check`
+- **THEN** the script runs `cargo fmt --check`
+- **AND** the script runs `cargo clippy -- -D warnings`
+- **AND** the script runs `cargo build`
+- **AND** the script runs `cargo test`
+- **AND** the script uses `RUSTFLAGS="-D warnings"` for compilation steps
+
+#### Scenario: CI uses the check script
+- **WHEN** the CI workflow runs validation steps
+- **THEN** the CI invokes `script/check` rather than sequencing cargo commands in GitHub Actions YAML
+- **AND** the validation logic is centralized in the script
+
 ### Requirement: Release Pipeline
 
 The system SHALL provide an automated release pipeline via GitHub Actions that is triggered by manual workflow dispatch.
@@ -43,3 +71,11 @@ The system SHALL provide an automated release pipeline via GitHub Actions that i
 - **WHEN** release binaries are successfully built
 - **THEN** binaries are uploaded as assets to the GitHub Release
 - **AND** asset names indicate the target platform and architecture
+
+#### Scenario: Release requires passing tests on all platforms
+- **WHEN** the release workflow is triggered
+- **THEN** tests MUST pass on Linux x86_64
+- **AND** tests MUST pass on Linux aarch64
+- **AND** tests MUST pass on macOS x86_64
+- **AND** tests MUST pass on macOS aarch64
+- **BEFORE** any release artifacts are created or GitHub Release is published
