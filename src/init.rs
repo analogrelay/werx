@@ -1,24 +1,24 @@
 use anyhow::{Context, Result};
-use dialoguer::{Select, theme::ColorfulTheme};
+use dialoguer::{theme::ColorfulTheme, Select};
 use std::fs;
 use std::path::PathBuf;
 
-use crate::validation::validate_forge_path;
-use crate::{Forge, Protocol};
+use crate::validation::validate_werx_path;
+use crate::{Protocol, Werx};
 
-/// Initialize a Forge at the specified path
+/// Initialize a Werx at the specified path
 ///
 /// Creates the directory structure:
-/// - <root>/                     (Forge root, for workspaces)
-/// - <root>/.forge/              (Internal directory)
-/// - <root>/.forge/repos/        (Repository storage)
-/// - <root>/.forge/config        (Configuration file, also serves as marker)
+/// - <root>/                     (Werx root, for workspaces)
+/// - <root>/.werx/               (Internal directory)
+/// - <root>/.werx/repos/         (Repository storage)
+/// - <root>/.werx/config         (Configuration file, also serves as marker)
 ///
-/// If force is true, will reinitialize an existing Forge
+/// If force is true, will reinitialize an existing Werx
 /// If protocol is None, will prompt the user for protocol preference
-pub fn initialize_forge(path: PathBuf, force: bool, protocol: Option<Protocol>) -> Result<Forge> {
+pub fn initialize_werx(path: PathBuf, force: bool, protocol: Option<Protocol>) -> Result<Werx> {
     // Validate the path
-    validate_forge_path(&path, force).context("Path validation failed")?;
+    validate_werx_path(&path, force).context("Path validation failed")?;
 
     // Prompt for protocol preference BEFORE creating anything
     // This way if user Ctrl-C's, nothing has been created yet
@@ -34,23 +34,22 @@ pub fn initialize_forge(path: PathBuf, force: bool, protocol: Option<Protocol>) 
             .context(format!("Failed to create directory '{}'", path.display()))?;
     }
 
-    // Create forge structure
-    let forge = Forge { root: path };
+    // Create werx structure
+    let werx = Werx { root: path };
 
-    // Create .forge directory
-    create_directory(&forge.forge_dir(), ".forge")?;
+    // Create .werx directory
+    create_directory(&werx.werx_dir(), ".werx")?;
 
-    // Create repos subdirectory inside .forge
-    create_directory(&forge.repos_dir(), "repos")?;
+    // Create repos subdirectory inside .werx
+    create_directory(&werx.repos_dir(), "repos")?;
 
     // Create config file with protocol preference
     let mut config = crate::Config::default();
     config.set_protocol(protocol);
-    forge
-        .save_config(&config)
-        .context("Failed to create Forge config file")?;
+    werx.save_config(&config)
+        .context("Failed to create Werx config file")?;
 
-    Ok(forge)
+    Ok(werx)
 }
 
 /// Prompt user to choose protocol preference
@@ -96,100 +95,100 @@ fn create_directory(path: &PathBuf, name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::FORGE_CONFIG;
+    use crate::WERX_CONFIG;
     use std::fs;
     use tempfile::TempDir;
 
     #[test]
-    fn test_initialize_forge_creates_structure() {
+    fn test_initialize_werx_creates_structure() {
         let temp = TempDir::new().unwrap();
-        let forge_path = temp.path().join("test-forge");
+        let werx_path = temp.path().join("test-werx");
 
-        let forge = initialize_forge(forge_path.clone(), false, Some(Protocol::Https))
-            .expect("Should initialize forge");
+        let werx = initialize_werx(werx_path.clone(), false, Some(Protocol::Https))
+            .expect("Should initialize werx");
 
-        assert_eq!(forge.root, forge_path);
-        assert!(forge_path.exists());
-        assert!(forge.forge_dir().exists());
-        assert!(forge.repos_dir().exists());
-        assert!(forge.config_file().exists());
+        assert_eq!(werx.root, werx_path);
+        assert!(werx_path.exists());
+        assert!(werx.werx_dir().exists());
+        assert!(werx.repos_dir().exists());
+        assert!(werx.config_file().exists());
     }
 
     #[test]
-    fn test_initialize_forge_in_existing_empty_directory() {
+    fn test_initialize_werx_in_existing_empty_directory() {
         let temp = TempDir::new().unwrap();
 
-        let forge = initialize_forge(temp.path().to_path_buf(), false, Some(Protocol::Ssh))
-            .expect("Should initialize forge");
+        let werx = initialize_werx(temp.path().to_path_buf(), false, Some(Protocol::Ssh))
+            .expect("Should initialize werx");
 
-        assert!(forge.forge_dir().exists());
-        assert!(forge.repos_dir().exists());
-        assert!(forge.config_file().exists());
+        assert!(werx.werx_dir().exists());
+        assert!(werx.repos_dir().exists());
+        assert!(werx.config_file().exists());
     }
 
     #[test]
-    fn test_initialize_forge_creates_parent_directories() {
+    fn test_initialize_werx_creates_parent_directories() {
         let temp = TempDir::new().unwrap();
-        let forge_path = temp.path().join("parent").join("child").join("forge");
+        let werx_path = temp.path().join("parent").join("child").join("werx");
 
-        let forge = initialize_forge(forge_path.clone(), false, Some(Protocol::Https))
-            .expect("Should initialize forge");
+        let werx = initialize_werx(werx_path.clone(), false, Some(Protocol::Https))
+            .expect("Should initialize werx");
 
-        assert!(forge_path.exists());
-        assert!(forge.forge_dir().exists());
-        assert!(forge.repos_dir().exists());
-        assert!(forge.config_file().exists());
+        assert!(werx_path.exists());
+        assert!(werx.werx_dir().exists());
+        assert!(werx.repos_dir().exists());
+        assert!(werx.config_file().exists());
     }
 
     #[test]
-    fn test_initialize_forge_fails_without_force() {
+    fn test_initialize_werx_fails_without_force() {
         let temp = TempDir::new().unwrap();
-        let forge_dir = temp.path().join(".forge");
-        fs::create_dir(&forge_dir).unwrap();
-        let config_path = forge_dir.join(FORGE_CONFIG);
+        let werx_dir = temp.path().join(".werx");
+        fs::create_dir(&werx_dir).unwrap();
+        let config_path = werx_dir.join(WERX_CONFIG);
         let cfg = crate::Config::default();
         cfg.save(&config_path).unwrap();
 
-        let result = initialize_forge(temp.path().to_path_buf(), false, Some(Protocol::Https));
+        let result = initialize_werx(temp.path().to_path_buf(), false, Some(Protocol::Https));
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_initialize_forge_succeeds_with_force() {
+    fn test_initialize_werx_succeeds_with_force() {
         let temp = TempDir::new().unwrap();
-        let forge_dir = temp.path().join(".forge");
-        fs::create_dir(&forge_dir).unwrap();
-        let config_path = forge_dir.join(FORGE_CONFIG);
+        let werx_dir = temp.path().join(".werx");
+        fs::create_dir(&werx_dir).unwrap();
+        let config_path = werx_dir.join(WERX_CONFIG);
         let cfg = crate::Config::default();
         cfg.save(&config_path).unwrap();
 
-        let result = initialize_forge(temp.path().to_path_buf(), true, Some(Protocol::Ssh));
+        let result = initialize_werx(temp.path().to_path_buf(), true, Some(Protocol::Ssh));
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_initialize_forge_preserves_existing_content_with_force() {
+    fn test_initialize_werx_preserves_existing_content_with_force() {
         let temp = TempDir::new().unwrap();
         let existing_file = temp.path().join("existing.txt");
         fs::write(&existing_file, b"important data").unwrap();
 
-        let forge = initialize_forge(temp.path().to_path_buf(), true, Some(Protocol::Https))
-            .expect("Should initialize forge");
+        let werx = initialize_werx(temp.path().to_path_buf(), true, Some(Protocol::Https))
+            .expect("Should initialize werx");
 
         assert!(existing_file.exists());
         assert_eq!(fs::read(&existing_file).unwrap(), b"important data");
-        assert!(forge.config_file().exists());
+        assert!(werx.config_file().exists());
     }
 
     #[test]
-    fn test_initialize_forge_saves_protocol_preference() {
+    fn test_initialize_werx_saves_protocol_preference() {
         let temp = TempDir::new().unwrap();
-        let forge_path = temp.path().join("test-forge");
+        let werx_path = temp.path().join("test-werx");
 
-        let forge = initialize_forge(forge_path.clone(), false, Some(Protocol::Ssh))
-            .expect("Should initialize forge");
+        let werx = initialize_werx(werx_path.clone(), false, Some(Protocol::Ssh))
+            .expect("Should initialize werx");
 
-        let config = forge.load_config().expect("Should load config");
+        let config = werx.load_config().expect("Should load config");
         assert_eq!(config.default_provider(), "github");
         assert_eq!(config.protocol(), Some(Protocol::Ssh));
     }

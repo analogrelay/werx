@@ -117,7 +117,7 @@ pub struct AgentConfig {
     pub repos: HashMap<String, RepoAgentConfig>,
 }
 
-/// Forge configuration stored in .forge/config.toml
+/// Werx configuration stored in .werx/config.toml
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Provider settings

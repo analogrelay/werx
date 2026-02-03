@@ -8,7 +8,7 @@ pub fn emit_change_directory<P: AsRef<Path>>(path: P) {
     emit_directive("change_directory", &path.as_ref().display().to_string());
 }
 
-/// Emits a directive to stderr in the format: @forge:<name>:<arg>
+/// Emits a directive to stderr in the format: @werx:<name>:<arg>
 ///
 /// Directives are used to communicate shell actions (like directory changes)
 /// from the binary to the shell wrapper function.
@@ -30,7 +30,7 @@ pub fn emit_directive(name: &str, arg: &str) {
         "Directive argument cannot contain newlines"
     );
 
-    eprintln!("@forge:{}:{}", name, arg);
+    eprintln!("@werx:{}:{}", name, arg);
 }
 
 #[cfg(test)]

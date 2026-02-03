@@ -2,10 +2,10 @@ use anyhow::{Context, Result, anyhow};
 use std::fs;
 use std::path::PathBuf;
 
-use crate::Forge;
+use crate::Werx;
 
-/// Validate that a path is suitable for a Forge
-pub fn validate_forge_path(path: &PathBuf, force: bool) -> Result<()> {
+/// Validate that a path is suitable for a Werx
+pub fn validate_werx_path(path: &PathBuf, force: bool) -> Result<()> {
     // Check if path exists
     if path.exists() {
         // Check if it's a regular file
@@ -16,15 +16,15 @@ pub fn validate_forge_path(path: &PathBuf, force: bool) -> Result<()> {
             ));
         }
 
-        // Check if it's already a Forge
-        if Forge::exists_at(path) && !force {
+        // Check if it's already a Werx
+        if Werx::exists_at(path) && !force {
             return Err(anyhow!(
-                "A Forge already exists at '{}'. Use --force to re-initialize.",
+                "A Werx already exists at '{}'. Use --force to re-initialize.",
                 path.display()
             ));
         }
 
-        // Check if directory is not empty (and not a Forge being forced)
+        // Check if directory is not empty (and not a Werx being forced)
         if !force && is_non_empty_directory(path)? {
             return Err(anyhow!(
                 "Directory '{}' is not empty. Use --force to initialize anyway.",
@@ -74,7 +74,7 @@ fn validate_path_is_creatable(path: &std::path::Path) -> Result<()> {
 
             // Check write permission by attempting to create and remove a temp file
             // This is a bit crude but works across platforms
-            let test_file = current.join(".forge_permission_test");
+            let test_file = current.join(".werx_permission_test");
             fs::write(&test_file, b"test").context(format!(
                 "Permission denied: cannot write to '{}'",
                 current.display()
@@ -107,9 +107,9 @@ mod tests {
     #[test]
     fn test_validate_new_directory() {
         let temp = TempDir::new().unwrap();
-        let forge_path = temp.path().join("new-forge");
+        let werx_path = temp.path().join("new-werx");
 
-        let result = validate_forge_path(&forge_path, false);
+        let result = validate_werx_path(&werx_path, false);
         assert!(result.is_ok());
     }
 
@@ -117,7 +117,7 @@ mod tests {
     fn test_validate_empty_existing_directory() {
         let temp = TempDir::new().unwrap();
 
-        let result = validate_forge_path(&temp.path().to_path_buf(), false);
+        let result = validate_werx_path(&temp.path().to_path_buf(), false);
         assert!(result.is_ok());
     }
 
@@ -127,35 +127,35 @@ mod tests {
         let file_path = temp.path().join("file.txt");
         fs::write(&file_path, b"test").unwrap();
 
-        let result = validate_forge_path(&file_path, false);
+        let result = validate_werx_path(&file_path, false);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("regular file"));
     }
 
     #[test]
-    fn test_reject_existing_forge_without_force() {
+    fn test_reject_existing_werx_without_force() {
         let temp = TempDir::new().unwrap();
-        let forge_dir = temp.path().join(".forge");
-        fs::create_dir(&forge_dir).unwrap();
-        let config = forge_dir.join("config.toml");
+        let werx_dir = temp.path().join(".werx");
+        fs::create_dir(&werx_dir).unwrap();
+        let config = werx_dir.join("config.toml");
         let cfg = crate::Config::default();
         cfg.save(&config).unwrap();
 
-        let result = validate_forge_path(&temp.path().to_path_buf(), false);
+        let result = validate_werx_path(&temp.path().to_path_buf(), false);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
     }
 
     #[test]
-    fn test_allow_existing_forge_with_force() {
+    fn test_allow_existing_werx_with_force() {
         let temp = TempDir::new().unwrap();
-        let forge_dir = temp.path().join(".forge");
-        fs::create_dir(&forge_dir).unwrap();
-        let config = forge_dir.join("config.toml");
+        let werx_dir = temp.path().join(".werx");
+        fs::create_dir(&werx_dir).unwrap();
+        let config = werx_dir.join("config.toml");
         let cfg = crate::Config::default();
         cfg.save(&config).unwrap();
 
-        let result = validate_forge_path(&temp.path().to_path_buf(), true);
+        let result = validate_werx_path(&temp.path().to_path_buf(), true);
         assert!(result.is_ok());
     }
 
@@ -165,7 +165,7 @@ mod tests {
         let file_path = temp.path().join("existing-file.txt");
         fs::write(&file_path, b"test").unwrap();
 
-        let result = validate_forge_path(&temp.path().to_path_buf(), false);
+        let result = validate_werx_path(&temp.path().to_path_buf(), false);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not empty"));
     }
@@ -176,7 +176,7 @@ mod tests {
         let file_path = temp.path().join("existing-file.txt");
         fs::write(&file_path, b"test").unwrap();
 
-        let result = validate_forge_path(&temp.path().to_path_buf(), true);
+        let result = validate_werx_path(&temp.path().to_path_buf(), true);
         assert!(result.is_ok());
     }
 }
