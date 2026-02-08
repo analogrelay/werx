@@ -13,6 +13,7 @@
 ### Other Changes
 
 - Added crates.io publishing step to release workflow
+- Added pre-release validation for duplicate GitHub Releases, crates.io versions, and CARGO_REGISTRY_TOKEN
 
 ### Bugs Fixed
 
