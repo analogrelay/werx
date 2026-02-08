@@ -10,6 +10,10 @@
 - Fixed namedata module structure by converting to a single Rust file (#1)
 - Resolved clippy warnings and formatting issues (#1)
 
+### Other Changes
+
+- Added crates.io publishing step to release workflow (PR TBD)
+
 ### Bugs Fixed
 
 - Added `rust-toolchain.toml` for consistent Rust version management (#1)
