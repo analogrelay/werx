@@ -2,6 +2,12 @@
 name = "werx"
 version = "0.1.0"
 edition = "2024"
+description = "Command-line workspace management tool for developers and AI agents."
+license = "MIT"
+license-file = "LICENSE.md"
+documentation = "https://docs.rs/werx"
+homepage = "https://github.com/analogrelay/werx"
+repository = "https://github.com/analogrelay/werx"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
