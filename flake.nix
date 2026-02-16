@@ -11,20 +11,14 @@
   };
 
   outputs = { self, nixpkgs, flake-utils, rust-overlay }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        overlays = [ (import rust-overlay) ];
-        pkgs = import nixpkgs { inherit system overlays; };
-
-        # Read toolchain from rust-toolchain.toml
-        rustToolchain =
-          pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-
-        cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
-
-        werx = pkgs.rustPlatform.buildRustPackage {
+    let
+      # Package builder that works with any nixpkgs instance.
+      # Used by both the per-system packages and the overlay.
+      mkWerx = pkgs:
+        pkgs.rustPlatform.buildRustPackage {
           pname = "werx";
-          version = cargoToml.package.version;
+          version = (builtins.fromTOML
+            (builtins.readFile ./Cargo.toml)).package.version;
 
           src = ./.;
 
@@ -44,14 +38,26 @@
               "A tool for managing code repositories and workspaces";
             homepage = "https://github.com/analogrelay/werx";
             license = licenses.mit;
-            maintainers = [ ];
             mainProgram = "werx";
           };
         };
+    in {
+      # Overlay for consuming werx from NixOS/nix-darwin configurations.
+      # Usage: nixpkgs.overlays = [ werx.overlays.default ];
+      #        environment.systemPackages = [ pkgs.werx ];
+      overlays.default = final: _prev: { werx = mkWerx final; };
+    } // flake-utils.lib.eachDefaultSystem (system:
+      let
+        overlays = [ (import rust-overlay) ];
+        pkgs = import nixpkgs { inherit system overlays; };
+
+        # Read toolchain from rust-toolchain.toml
+        rustToolchain =
+          pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
       in {
         packages = {
-          default = werx;
-          werx = werx;
+          default = mkWerx pkgs;
+          werx = mkWerx pkgs;
         };
 
         devShells.default = pkgs.mkShell {
