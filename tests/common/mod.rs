@@ -317,34 +317,6 @@ pub fn create_test_bare_repo(path: &Path, default_branch: &str) {
 
 /// Check if tmux is available on this system
 #[allow(dead_code)]
-pub fn tmux_available() -> bool {
-    Command::new("tmux")
-        .args(["-V"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-/// Check if the werx-agents tmux session exists
-#[allow(dead_code)]
-pub fn werx_agents_session_exists() -> bool {
-    Command::new("tmux")
-        .args(["has-session", "-t", "werx-agents"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-/// Kill the werx-agents tmux session if it exists (for test cleanup)
-#[allow(dead_code)]
-pub fn cleanup_werx_agents_session() {
-    if werx_agents_session_exists() {
-        let _ = Command::new("tmux")
-            .args(["kill-session", "-t", "werx-agents"])
-            .output();
-    }
-}
-
 /// Assert that a command succeeded
 pub fn assert_success(output: &std::process::Output) {
     if !output.status.success() {

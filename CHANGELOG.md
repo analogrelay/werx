@@ -10,6 +10,12 @@
 - Fixed namedata module structure by converting to a single Rust file
 - Resolved clippy warnings and formatting issues
 
+### Breaking Changes
+
+- Removed `werx agent` command group and all subcommands (`spawn`, `list`, `status`, `attach`, `kill`, `providers`) (PR TBD)
+- Removed `[agents]` configuration section from `.werx/config.toml`; existing configs with this section will have it silently ignored (PR TBD)
+- Removed `exec` and `rand` dependencies that were only used by agent management (PR TBD)
+
 ### Other Changes
 
 - Added Nix overlay output (`overlays.default`) for easy integration with NixOS and nix-darwin configurations (PR TBD)
@@ -22,5 +28,4 @@
 - Added `TestContext` for isolated test environments with pre-configured git
 - Extracted reusable GitHub workflows (`_build.yml`, `_nix-build.yml`) to reduce CI duplication
 - Added Nix build job to CI and release workflows
-- Installed OpenCode in CI for agent detection tests
 - Updated AGENTS.md with changelog maintenance instructions

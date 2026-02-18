@@ -1,8 +1,6 @@
-pub mod agent;
 pub mod config;
 pub mod directive;
 pub mod init;
-pub mod namedata;
 pub mod path;
 pub mod repo_spec;
 pub mod repos;
@@ -12,11 +10,6 @@ pub mod workspace;
 
 use std::path::PathBuf;
 
-pub use agent::{
-    Agent, AgentProvider, AgentStatus, AgentType, SpawnOptions, SpawnResult, attach_to_agent,
-    detect_providers, find_agent, get_agent_status, get_default_provider, kill_agent, list_agents,
-    spawn_agent,
-};
 pub use config::{Config, Protocol};
 pub use directive::emit_change_directory;
 pub use init::initialize_werx;

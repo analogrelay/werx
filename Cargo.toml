@@ -2,7 +2,7 @@
 name = "werx"
 version = "0.1.0"
 edition = "2024"
-description = "Command-line workspace management tool for developers and AI agents."
+description = "Command-line workspace management tool for developers."
 license = "MIT"
 license-file = "LICENSE.md"
 documentation = "https://docs.rs/werx"
@@ -21,8 +21,6 @@ dialoguer = "0.11"
 skim = "0.10"
 fuzzy-matcher = "0.3"
 tempfile = "3.0"
-rand = "0.8"
-exec = "0.3"
 crossterm = "0.29.0"
 
 [build-dependencies]
