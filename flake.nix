@@ -2,7 +2,8 @@
   description = "Werx - A tool for managing code repositories and workspaces";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:cachix/devenv-nixpkgs/rolling";
+    devenv.url = "github:cachix/devenv";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
@@ -10,7 +11,13 @@
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
+  nixConfig = {
+    extra-trusted-public-keys =
+      "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=";
+    extra-substituters = "https://devenv.cachix.org";
+  };
+
+  outputs = { self, nixpkgs, flake-utils, rust-overlay, devenv }@inputs:
     let
       # Package builder that works with any nixpkgs instance.
       # Used by both the per-system packages and the overlay.
@@ -60,15 +67,14 @@
           werx = mkWerx pkgs;
         };
 
-        devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            rustToolchain
-            rust-analyzer
-            cargo-watch
-            cargo-edit
+        devShells.default = devenv.lib.mkShell {
+          inherit inputs pkgs;
+          modules = [
+            ({ ... }: {
+              devcontainer.enable = true;
+              languages.rust.enable = true;
+            })
           ];
-
-          RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
         };
       });
 }
