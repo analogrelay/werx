@@ -61,6 +61,7 @@ The system SHALL create the necessary directory structure when initializing a Fo
   - `<forge-root>/.forge/` for internal data (marker file, repositories, configuration)
   - `<forge-root>/.forge/repos/` for storing repository clones
   - Workspaces are created as non-hidden directories directly in `<forge-root>/`
+- **AND** no agent session infrastructure is created
 
 #### Scenario: Workspaces live at root level
 
@@ -127,6 +128,7 @@ The system SHALL provide clear feedback when initialization succeeds.
 - **WHEN** Forge is initialized
 - **THEN** `.forge/config` includes the protocol preference
 - **AND** serves as both config and marker file
+- **AND** config contains no agent-related sections
 
 ### Requirement: Error Handling
 
