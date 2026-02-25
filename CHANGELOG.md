@@ -24,6 +24,7 @@
 
 ### Bugs Fixed
 
+- Fixed infinite recursion in `werx` shell function caused by function self-invocation instead of calling the binary (PR TBD)
 - Added `rust-toolchain.toml` for consistent Rust version management
 - Added `TestContext` for isolated test environments with pre-configured git
 - Extracted reusable GitHub workflows (`_build.yml`, `_nix-build.yml`) to reduce CI duplication

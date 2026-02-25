@@ -12,7 +12,7 @@ werx() {
 
   # Capture combined output (stdout + stderr)
   local output
-  output=$("$werx_bin" "$@" 2>&1)
+  output=$(command "$werx_bin" "$@" 2>&1)
   local exit_code=$?
 
   # Extract directives (lines starting with @werx:)
