@@ -24,6 +24,7 @@
 
 ### Bugs Fixed
 
+- Fixed shell hook hanging by replacing stdout-scraping directive protocol with a temp file (`WERX_DIRECTIVE_FILE`) (PR TBD)
 - Fixed infinite recursion in `werx` shell function caused by function self-invocation instead of calling the binary (PR TBD)
 - Added `rust-toolchain.toml` for consistent Rust version management
 - Added `TestContext` for isolated test environments with pre-configured git

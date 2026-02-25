@@ -10,19 +10,15 @@ werx() {
   # Use WERX_BIN if set, otherwise 'werx' from PATH
   local werx_bin="${WERX_BIN:-werx}"
 
-  # Capture combined output (stdout + stderr)
-  local output
-  output=$(command "$werx_bin" "$@" 2>&1)
+  # Create a temp file for directives and register cleanup
+  local directive_file
+  directive_file=$(mktemp)
+
+  # Run the binary directly; stdout/stderr flow to the terminal unchanged
+  WERX_DIRECTIVE_FILE="$directive_file" command "$werx_bin" "$@"
   local exit_code=$?
 
-  # Extract directives (lines starting with @werx:)
-  local directives
-  directives=$(echo "$output" | grep "^@werx:")
-
-  # Print non-directive output
-  echo "$output" | grep -v "^@werx:"
-
-  # Process directives
+  # Process directives written by the binary
   while IFS= read -r directive; do
     if [[ "$directive" =~ ^@werx:change_directory:(.+)$ ]]; then
       local target_dir="${BASH_REMATCH[1]}"
@@ -32,7 +28,8 @@ werx() {
         echo "werx: directory does not exist: $target_dir" >&2
       fi
     fi
-  done <<< "$directives"
+  done < "$directive_file"
 
+  rm -f "$directive_file"
   return $exit_code
 }

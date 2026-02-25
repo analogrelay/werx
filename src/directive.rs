@@ -1,77 +1,72 @@
+use anyhow::{Context, Result};
+use std::io::Write;
 use std::path::Path;
 
 /// Emits a directive to change the shell's current directory.
 ///
-/// This emits a `change_directory` directive to stderr that can be
-/// intercepted by the shell wrapper function to execute `cd`.
-pub fn emit_change_directory<P: AsRef<Path>>(path: P) {
-    emit_directive("change_directory", &path.as_ref().display().to_string());
-}
-
-/// Emits a directive to stderr in the format: @werx:<name>:<arg>
+/// Writes a `change_directory` directive to the file specified by
+/// `WERX_DIRECTIVE_FILE`. Returns an error if the env var is not set
+/// or the file cannot be written to.
 ///
-/// Directives are used to communicate shell actions (like directory changes)
-/// from the binary to the shell wrapper function.
-///
-/// # Panics
-///
-/// Panics if the directive name contains invalid characters (only lowercase
-/// letters and underscores are allowed) or if the argument contains newlines.
-pub fn emit_directive(name: &str, arg: &str) {
-    // Validate directive name: only lowercase letters and underscores
-    assert!(
-        name.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
-        "Directive name must contain only lowercase letters and underscores"
-    );
+/// Callers should treat a returned error as a non-fatal warning — the
+/// command completed successfully, but the shell could not be notified.
+pub fn emit_change_directory<P: AsRef<Path>>(path: P) -> Result<()> {
+    let directive_file = std::env::var("WERX_DIRECTIVE_FILE").map_err(|_| {
+        anyhow::anyhow!(
+            "couldn't communicate with your shell to change the working directory; \
+             have you installed the shell hook? (run 'werx shell init --help')"
+        )
+    })?;
 
-    // Validate argument doesn't contain newlines
-    assert!(
-        !arg.contains('\n'),
-        "Directive argument cannot contain newlines"
-    );
+    let path_str = path.as_ref().display().to_string();
+    anyhow::ensure!(!path_str.contains('\n'), "Directory path cannot contain newlines");
 
-    eprintln!("@werx:{}:{}", name, arg);
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&directive_file)
+        .with_context(|| format!("Failed to open directive file '{}'", directive_file))?;
+
+    writeln!(file, "@werx:change_directory:{}", path_str)
+        .with_context(|| format!("Failed to write to directive file '{}'", directive_file))?;
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
-    fn test_emit_directive_format() {
-        // Note: This test can't easily verify stderr output without mocking.
-        // The actual verification happens in integration tests.
-        // Here we just ensure the function doesn't panic with valid input.
-        emit_directive("test_directive", "test_arg");
+    fn test_emit_change_directory_no_env_var() {
+        // Temporarily remove the env var to ensure it is not set
+        let saved = std::env::var("WERX_DIRECTIVE_FILE").ok();
+        unsafe {
+            std::env::remove_var("WERX_DIRECTIVE_FILE");
+        }
+        let result = emit_change_directory("/tmp/test");
+        if let Some(val) = saved {
+            unsafe {
+                std::env::set_var("WERX_DIRECTIVE_FILE", val);
+            }
+        }
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("shell hook"), "error should mention shell hook: {}", msg);
     }
 
     #[test]
-    #[should_panic(expected = "Directive name must contain only lowercase letters and underscores")]
-    fn test_emit_directive_validation_uppercase() {
-        emit_directive("TestDirective", "arg");
-    }
-
-    #[test]
-    #[should_panic(expected = "Directive name must contain only lowercase letters and underscores")]
-    fn test_emit_directive_validation_hyphen() {
-        emit_directive("test-directive", "arg");
-    }
-
-    #[test]
-    #[should_panic(expected = "Directive argument cannot contain newlines")]
-    fn test_emit_directive_validation_newline() {
-        emit_directive("test_directive", "arg\nwith\nnewlines");
-    }
-
-    #[test]
-    fn test_emit_change_directory() {
-        let path = PathBuf::from("/tmp/test");
-        emit_change_directory(&path);
-    }
-
-    #[test]
-    fn test_emit_directive_with_underscores() {
-        emit_directive("change_directory", "/path/to/dir");
+    fn test_emit_change_directory_writes_directive() {
+        let tmp = tempfile::NamedTempFile::new().expect("create temp file");
+        let path = tmp.path().to_str().unwrap().to_string();
+        unsafe {
+            std::env::set_var("WERX_DIRECTIVE_FILE", &path);
+        }
+        let result = emit_change_directory("/tmp/test-workspace");
+        unsafe {
+            std::env::remove_var("WERX_DIRECTIVE_FILE");
+        }
+        result.expect("emit_change_directory should succeed");
+        let content = std::fs::read_to_string(&path).expect("read directive file");
+        assert_eq!(content, "@werx:change_directory:/tmp/test-workspace\n");
     }
 }

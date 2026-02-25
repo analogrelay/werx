@@ -706,8 +706,9 @@ fn cmd_go(query: Option<String>) -> Result<()> {
     // Select workspace with optional query
     match select_workspace_with_query(workspaces, query)? {
         Some(workspace) => {
-            // Emit change_directory directive
-            emit_change_directory(&workspace.path);
+            if let Err(e) = emit_change_directory(&workspace.path) {
+                eprintln!("werx: warning: {}", e);
+            }
         }
         None => {
             // User cancelled or no selection

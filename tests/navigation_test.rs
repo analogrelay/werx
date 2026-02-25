@@ -56,22 +56,24 @@ fn test_go_with_exact_match() {
     let create_output = ctx.run_werx(&["create", "navtest/myrepo"], &[]);
     assert_success(&create_output);
 
-    // Use 'werx go' with an exact query that matches
-    // When running non-interactively (no TTY), if there's an exact match it should emit the directive
-    let output = ctx.run_werx(&["go", "myrepo/main"], &[]);
+    // Create a temp file to receive directives (simulating the shell hook)
+    let directive_file = tempfile::NamedTempFile::new().expect("create temp directive file");
+    let directive_path = directive_file.path().to_str().unwrap().to_string();
+
+    // Use 'werx go' with an exact query that matches, passing the directive file
+    let output = ctx.run_werx(
+        &["go", "myrepo/main"],
+        &[("WERX_DIRECTIVE_FILE", &directive_path)],
+    );
 
     assert_success(&output);
 
-    // The change_directory directive is emitted to stderr (by design)
-    // so that the shell wrapper can intercept it while letting stdout pass through
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    // Should emit a change_directory directive with the path
-    // The directive format is: @werx:change_directory:/path/to/workspace
+    // The change_directory directive is written to WERX_DIRECTIVE_FILE
+    let directives = std::fs::read_to_string(&directive_path).expect("read directive file");
     assert!(
-        stderr.contains("@werx:change_directory:"),
-        "Should emit change_directory directive to stderr. Got: {}",
-        stderr
+        directives.contains("@werx:change_directory:"),
+        "Should write change_directory directive to file. Got: {}",
+        directives
     );
 }
 
