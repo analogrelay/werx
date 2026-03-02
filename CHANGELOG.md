@@ -9,6 +9,8 @@
 
 - Fixed namedata module structure by converting to a single Rust file
 - Resolved clippy warnings and formatting issues
+- Added `werx sync [<repospec>]` command with Plan → Confirm → Execute workflow: fetch remotes, fast-forward/rebase tracking branches, push local branches, and trash stale branches; `--dry-run` and `--no-confirm` flags; live progress display; parallelized across repos (PR TBD)
+- Added shared `branch_trash()` utility in `src/trash.rs` for safe branch removal to `werx/trash/<original>/<YYYYMMDD>` (PR TBD)
 
 ### Breaking Changes
 

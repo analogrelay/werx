@@ -6,8 +6,8 @@ use werx::{
     add_repo, check_workspace_status, cmd_shell_init, confirm_workspace_removal, create_repo,
     create_worktree, detect_current_workspace, emit_change_directory, find_repository,
     get_workspace_status_details, initialize_werx, list_repos, list_workspaces,
-    prompt_workspace_name, remove_repo, remove_workspace, resolve_werx_path, select_repository,
-    select_workspace_with_query, Werx, WorkspaceStatusDetails,
+    prompt_workspace_name, remove_repo, remove_workspace, resolve_werx_path, run_sync,
+    select_repository, select_workspace_with_query, Werx, WorkspaceStatusDetails,
 };
 
 /// Werx - Manage your code repositories and workspaces
@@ -83,6 +83,22 @@ enum Commands {
         /// Optional query to pre-fill or match workspaces
         #[arg(value_name = "QUERY")]
         query: Option<String>,
+    },
+
+    /// Sync repositories with their remotes
+    #[command(about = "Sync repositories with their remotes")]
+    Sync {
+        /// Repository to sync (syncs all repos if omitted)
+        #[arg(value_name = "REPO")]
+        repospec: Option<String>,
+
+        /// Show the plan without applying any changes
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip the confirmation prompt and execute immediately
+        #[arg(long)]
+        no_confirm: bool,
     },
 
     /// Shell integration commands
@@ -261,6 +277,13 @@ fn main() -> Result<()> {
         }
         Commands::Create { repo } => {
             cmd_create(repo)?;
+        }
+        Commands::Sync {
+            repospec,
+            dry_run,
+            no_confirm,
+        } => {
+            cmd_sync(repospec, dry_run, no_confirm)?;
         }
         Commands::Go { query } => {
             cmd_go(query)?;
@@ -1210,4 +1233,9 @@ fn print_check_json(
     println!("{}", json);
 
     Ok(())
+}
+
+fn cmd_sync(repospec: Option<String>, dry_run: bool, no_confirm: bool) -> Result<()> {
+    let werx = find_werx()?;
+    run_sync(&werx, repospec.as_deref(), dry_run, no_confirm)
 }

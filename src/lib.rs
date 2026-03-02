@@ -5,12 +5,15 @@ pub mod path;
 pub mod repo_spec;
 pub mod repos;
 pub mod shell;
+pub mod sync;
+pub mod trash;
 pub mod validation;
 pub mod workspace;
 
 use std::path::PathBuf;
 
-pub use config::{Config, Protocol};
+pub use config::{Config, Protocol, SyncConfig};
+pub use sync::run_sync;
 pub use directive::emit_change_directory;
 pub use init::initialize_werx;
 pub use path::resolve_werx_path;

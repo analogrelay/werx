@@ -63,12 +63,28 @@ impl Default for ProviderConfig {
     }
 }
 
+/// Sync configuration
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SyncConfig {
+    /// Remotes to fetch from during sync (defaults to ["origin", "upstream"] if absent)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remotes: Option<Vec<String>>,
+}
+
+static DEFAULT_SYNC_REMOTES: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {
+    vec!["origin".to_string(), "upstream".to_string()]
+});
+
 /// Werx configuration stored in .werx/config.toml
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     /// Provider settings
     #[serde(default)]
     pub provider: ProviderConfig,
+
+    /// Sync settings
+    #[serde(default)]
+    pub sync: SyncConfig,
 }
 
 impl Config {
@@ -120,6 +136,15 @@ impl Config {
     /// Get the default provider
     pub fn default_provider(&self) -> &str {
         &self.provider.default
+    }
+
+    /// Get the list of remotes to fetch from during sync.
+    /// Returns the configured list or the default ["origin", "upstream"].
+    pub fn sync_remotes(&self) -> &[String] {
+        self.sync
+            .remotes
+            .as_deref()
+            .unwrap_or(&DEFAULT_SYNC_REMOTES)
     }
 }
 
@@ -197,5 +222,51 @@ mod tests {
     fn test_protocol_display() {
         assert_eq!(Protocol::Ssh.to_string(), "ssh");
         assert_eq!(Protocol::Https.to_string(), "https");
+    }
+
+    // ===== SyncConfig / sync_remotes tests (task 3.4) =====
+
+    #[test]
+    fn test_sync_remotes_default_when_absent() {
+        let config = Config::default();
+        let remotes = config.sync_remotes();
+        assert_eq!(remotes, &["origin", "upstream"]);
+    }
+
+    #[test]
+    fn test_sync_remotes_from_config() {
+        let toml = r#"
+[sync]
+remotes = ["origin", "myupstream"]
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.sync_remotes(), &["origin", "myupstream"]);
+    }
+
+    #[test]
+    fn test_sync_remotes_serialize_deserialize() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("config.toml");
+
+        let mut config = Config::default();
+        config.sync.remotes = Some(vec!["origin".to_string(), "fork".to_string()]);
+        config.save(&path).unwrap();
+
+        let loaded = Config::load(&path).unwrap();
+        assert_eq!(loaded.sync_remotes(), &["origin", "fork"]);
+
+        let contents = fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("[sync]"));
+        assert!(contents.contains("remotes"));
+    }
+
+    #[test]
+    fn test_sync_remotes_absent_key_yields_defaults() {
+        let toml = r#"
+[provider]
+default = "github"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.sync_remotes(), &["origin", "upstream"]);
     }
 }
