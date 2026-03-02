@@ -91,15 +91,18 @@ impl Config {
     /// Load config from a file, or return default if file doesn't exist
     pub fn load(path: &Path) -> Result<Self> {
         if !path.exists() {
+            tracing::debug!("Config file not found at '{}', using defaults", path.display());
             return Ok(Config::default());
         }
 
+        tracing::debug!("Loading config from '{}'", path.display());
         let contents = fs::read_to_string(path)
             .context(format!("Failed to read config file '{}'", path.display()))?;
 
         let config: Config = toml::from_str(&contents)
             .context(format!("Failed to parse config file '{}'", path.display()))?;
 
+        tracing::debug!("Config loaded: provider={}, protocol={:?}", config.default_provider(), config.protocol());
         Ok(config)
     }
 

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-use crate::{RepoInfo, RepoSpec, Werx, repos};
+use crate::{RepoInfo, RepoSpec, Werx, cmd, repos};
 
 /// Workspace information
 #[derive(Debug, Clone, Serialize)]
@@ -103,10 +103,7 @@ pub fn list_workspaces(werx: &Werx) -> Result<Vec<Workspace>> {
                 workspaces.append(&mut repo_workspaces);
             }
             Err(e) => {
-                eprintln!(
-                    "Warning: Failed to list worktrees for {}: {}",
-                    repo.dir_name, e
-                );
+                tracing::warn!("Failed to list worktrees for {}: {}", repo.dir_name, e);
                 continue;
             }
         }
@@ -120,13 +117,12 @@ pub fn list_workspaces(werx: &Werx) -> Result<Vec<Workspace>> {
 
 /// List worktrees for a specific repository
 fn list_repo_worktrees(werx: &Werx, repo_path: &Path, repo_name: &str) -> Result<Vec<Workspace>> {
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(repo_path)
         .arg("worktree")
         .arg("list")
-        .arg("--porcelain")
-        .output()
+        .arg("--porcelain"))
         .context("Failed to execute git worktree list")?;
 
     if !output.status.success() {
@@ -537,13 +533,12 @@ fn select_branch(werx: &Werx, repo_info: &RepoInfo) -> Result<Option<String>> {
     let repo_path = werx.repos_dir().join(&repo_info.dir_name);
 
     // Get list of branches
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(&repo_path)
         .arg("branch")
         .arg("-a")
-        .arg("--format=%(refname:short)")
-        .output()
+        .arg("--format=%(refname:short)"))
         .context("Failed to list branches")?;
 
     if !output.status.success() {
@@ -657,14 +652,14 @@ pub fn create_worktree(
     let bare_repo_path = werx.repos_dir().join(&repo_info.dir_name);
 
     // Execute git worktree add
-    let output = Command::new("git")
+    tracing::info!("Creating worktree at '{}' for branch '{}'", workspace_path.display(), branch);
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(&bare_repo_path)
         .arg("worktree")
         .arg("add")
         .arg(&workspace_path)
-        .arg(branch)
-        .output()
+        .arg(branch))
         .context("Failed to execute git worktree add")?;
 
     if !output.status.success() {
@@ -686,12 +681,11 @@ pub fn check_workspace_status(path: &Path) -> Result<WorkspaceStatus> {
         return Ok(WorkspaceStatus::Prunable);
     }
 
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(path)
         .arg("status")
-        .arg("--porcelain")
-        .output()
+        .arg("--porcelain"))
         .context("Failed to execute git status")?;
 
     if !output.status.success() {
@@ -816,25 +810,23 @@ pub fn remove_workspace(werx: &Werx, workspace_path: &str) -> Result<()> {
     let bare_repo_path = werx.repos_dir().join(&workspace.repository);
 
     // Try to remove the worktree using git
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(&bare_repo_path)
         .arg("worktree")
         .arg("remove")
-        .arg(&workspace.path)
-        .output()
+        .arg(&workspace.path))
         .context("Failed to execute git worktree remove")?;
 
     if !output.status.success() {
         // If git worktree remove fails, try with --force (for orphaned directories)
-        let output = Command::new("git")
+        let output = cmd::run(Command::new("git")
             .arg("-C")
             .arg(&bare_repo_path)
             .arg("worktree")
             .arg("remove")
             .arg("--force")
-            .arg(&workspace.path)
-            .output()
+            .arg(&workspace.path))
             .context("Failed to execute git worktree remove --force")?;
 
         if !output.status.success() {
@@ -864,12 +856,11 @@ pub fn remove_workspace(werx: &Werx, workspace_path: &str) -> Result<()> {
     }
 
     // Prune worktree metadata to clean up any orphaned entries
-    let _ = Command::new("git")
+    let _ = cmd::run(Command::new("git")
         .arg("-C")
         .arg(&bare_repo_path)
         .arg("worktree")
-        .arg("prune")
-        .output();
+        .arg("prune"));
 
     Ok(())
 }
@@ -1023,12 +1014,11 @@ pub fn select_workspace_with_query(
 /// Check if a workspace's branch exists on any remote
 pub fn check_branch_pushed(workspace_path: &Path, branch: &str) -> Result<bool> {
     // Get list of remote branches
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(workspace_path)
         .arg("branch")
-        .arg("-r")
-        .output()
+        .arg("-r"))
         .context("Failed to execute git branch -r")?;
 
     if !output.status.success() {
@@ -1055,14 +1045,14 @@ pub fn check_branch_pushed(workspace_path: &Path, branch: &str) -> Result<bool> 
 /// Get the default branch for a repository
 pub fn get_default_branch(repo_path: &Path) -> Result<String> {
     // First try to get the default branch from symbolic-ref
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(repo_path)
         .arg("symbolic-ref")
-        .arg("refs/remotes/origin/HEAD")
-        .output();
+        .arg("refs/remotes/origin/HEAD"))
+        .ok();
 
-    if let Ok(output) = output
+    if let Some(output) = output
         && output.status.success()
     {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1075,15 +1065,15 @@ pub fn get_default_branch(repo_path: &Path) -> Result<String> {
 
     // Fallback: try common default branch names
     for default_name in &["main", "master", "develop"] {
-        let output = Command::new("git")
+        let output = cmd::run(Command::new("git")
             .arg("-C")
             .arg(repo_path)
             .arg("rev-parse")
             .arg("--verify")
-            .arg(format!("refs/remotes/origin/{}", default_name))
-            .output();
+            .arg(format!("refs/remotes/origin/{}", default_name)))
+            .ok();
 
-        if let Ok(output) = output
+        if let Some(output) = output
             && output.status.success()
         {
             return Ok(default_name.to_string());
@@ -1105,14 +1095,13 @@ pub fn check_branch_merged(
     }
 
     // Check if the branch is fully merged using git merge-base
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(workspace_path)
         .arg("merge-base")
         .arg("--is-ancestor")
         .arg(branch)
-        .arg(format!("origin/{}", default_branch))
-        .output()
+        .arg(format!("origin/{}", default_branch)))
         .context("Failed to execute git merge-base")?;
 
     // Exit code 0 means it's an ancestor (merged)
@@ -1193,12 +1182,11 @@ pub fn get_workspace_status_details(
 
 /// Get detailed status information for a workspace
 fn get_detailed_status(path: &Path) -> Result<StatusDetails> {
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(path)
         .arg("status")
-        .arg("--porcelain")
-        .output()
+        .arg("--porcelain"))
         .context("Failed to execute git status")?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);

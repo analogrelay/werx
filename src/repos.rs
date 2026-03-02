@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use crate::{Protocol, RepoSpec, Werx};
+use crate::{Protocol, RepoSpec, Werx, cmd};
 
 /// Repository information for listing
 #[derive(Debug, Clone, Serialize)]
@@ -64,9 +64,10 @@ pub fn add_repo(werx: &Werx, repo_spec: &str) -> Result<RepoSpec> {
 
     // Clone the repository
     let repo_dir = werx.repos_dir().join(&dir_name);
-    println!("Cloning repository: {}", spec.clone_url);
+    tracing::info!("Cloning repository: {}", spec.clone_url);
     clone_bare_repo(&spec.clone_url, &repo_dir)?;
 
+    tracing::info!("Repository added successfully: {} → .werx/repos/{}", spec.clone_url, dir_name);
     println!();
     println!("Repository added successfully!");
     println!();
@@ -127,7 +128,7 @@ pub fn list_repos(werx: &Werx) -> Result<Vec<RepoInfo>> {
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                eprintln!("Warning: Failed to read directory entry: {}", e);
+                tracing::warn!("Failed to read directory entry: {}", e);
                 continue;
             }
         };
@@ -190,13 +191,12 @@ fn get_repo_info(repo_path: &Path, dir_name: String) -> RepoInfo {
 
 /// Get the remote URL from a bare repository
 fn get_remote_url(repo_path: &Path) -> Result<String> {
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(repo_path)
         .arg("config")
         .arg("--get")
-        .arg("remote.origin.url")
-        .output()
+        .arg("remote.origin.url"))
         .context("Failed to execute git config command")?;
 
     if !output.status.success() {
@@ -214,12 +214,11 @@ fn get_remote_url(repo_path: &Path) -> Result<String> {
 
 /// Get the default branch from a bare repository
 fn get_default_branch(repo_path: &Path) -> Result<String> {
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(repo_path)
         .arg("symbolic-ref")
-        .arg("HEAD")
-        .output()
+        .arg("HEAD"))
         .context("Failed to execute git symbolic-ref command")?;
 
     if !output.status.success() {
@@ -297,12 +296,11 @@ pub fn remove_repo(werx: &Werx, repo_spec: &str, force: bool) -> Result<()> {
 
 /// Clone a repository as a bare clone
 fn clone_bare_repo(url: &str, dest: &Path) -> Result<()> {
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("clone")
         .arg("--bare")
         .arg(url)
-        .arg(dest)
-        .output()
+        .arg(dest))
         .context("Failed to execute git clone command")?;
 
     if !output.status.success() {
@@ -411,7 +409,7 @@ pub fn create_repo(werx: &Werx, repo_spec: &str) -> Result<CreatedRepoInfo> {
     // Create the bare repository
     let repo_dir = werx.repos_dir().join(&dir_name);
 
-    println!("Creating repository: {}/{}", owner, name);
+    tracing::info!("Creating repository: {}/{}", owner, name);
 
     // Initialize bare repository
     init_bare_repo(&repo_dir)?;
@@ -473,11 +471,10 @@ fn init_bare_repo(dest: &Path) -> Result<()> {
         dest.display()
     ))?;
 
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("init")
         .arg("--bare")
-        .arg(dest)
-        .output()
+        .arg(dest))
         .context("Failed to execute git init --bare command")?;
 
     if !output.status.success() {
@@ -514,14 +511,13 @@ fn generate_origin_url(
 
 /// Configure remote origin URL
 fn configure_origin(repo_path: &Path, url: &str) -> Result<()> {
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(repo_path)
         .arg("remote")
         .arg("add")
         .arg("origin")
-        .arg(url)
-        .output()
+        .arg(url))
         .context("Failed to execute git remote add command")?;
 
     if !output.status.success() {
@@ -536,14 +532,13 @@ fn configure_origin(repo_path: &Path, url: &str) -> Result<()> {
 fn init_main_branch(repo_path: &Path) -> Result<()> {
     // Use git hash-object and update-ref to create an empty commit
     // First, create an empty tree
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(repo_path)
         .arg("hash-object")
         .arg("-t")
         .arg("tree")
-        .arg("/dev/null")
-        .output()
+        .arg("/dev/null"))
         .context("Failed to create empty tree")?;
 
     if !output.status.success() {
@@ -554,14 +549,13 @@ fn init_main_branch(repo_path: &Path) -> Result<()> {
     let tree_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
     // Create a commit with the empty tree
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(repo_path)
         .arg("commit-tree")
         .arg(&tree_hash)
         .arg("-m")
-        .arg("Initial commit")
-        .output()
+        .arg("Initial commit"))
         .context("Failed to create initial commit")?;
 
     if !output.status.success() {
@@ -572,13 +566,12 @@ fn init_main_branch(repo_path: &Path) -> Result<()> {
     let commit_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
     // Update refs/heads/main to point to the new commit
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(repo_path)
         .arg("update-ref")
         .arg("refs/heads/main")
-        .arg(&commit_hash)
-        .output()
+        .arg(&commit_hash))
         .context("Failed to update main ref")?;
 
     if !output.status.success() {
@@ -587,13 +580,12 @@ fn init_main_branch(repo_path: &Path) -> Result<()> {
     }
 
     // Set HEAD to point to main
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .arg("-C")
         .arg(repo_path)
         .arg("symbolic-ref")
         .arg("HEAD")
-        .arg("refs/heads/main")
-        .output()
+        .arg("refs/heads/main"))
         .context("Failed to set HEAD")?;
 
     if !output.status.success() {

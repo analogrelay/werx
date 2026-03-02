@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use tracing_subscriber::{EnvFilter, fmt};
 
 use werx::{
     add_repo, check_workspace_status, cmd_shell_init, confirm_workspace_removal, create_repo,
@@ -262,6 +263,16 @@ enum WorkspaceCommands {
 }
 
 fn main() -> Result<()> {
+    let env_filter = EnvFilter::try_from_env("WERX_LOG")
+        .unwrap_or_else(|_| EnvFilter::new("off"));
+
+    fmt::Subscriber::builder()
+        .with_env_filter(env_filter)
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .compact()
+        .init();
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -270,12 +281,15 @@ fn main() -> Result<()> {
             force,
             protocol,
         } => {
+            let _span = tracing::info_span!("init").entered();
             cmd_init(path, force, protocol)?;
         }
         Commands::Add { repo } => {
+            let _span = tracing::info_span!("repos.add", repo = %repo).entered();
             cmd_add(repo)?;
         }
         Commands::Create { repo } => {
+            let _span = tracing::info_span!("repos.create", repo = %repo).entered();
             cmd_create(repo)?;
         }
         Commands::Sync {
@@ -283,9 +297,11 @@ fn main() -> Result<()> {
             dry_run,
             no_confirm,
         } => {
+            let _span = tracing::info_span!("sync").entered();
             cmd_sync(repospec, dry_run, no_confirm)?;
         }
         Commands::Go { query } => {
+            let _span = tracing::info_span!("go").entered();
             cmd_go(query)?;
         }
         Commands::Shell(subcmd) => match subcmd {
@@ -295,32 +311,41 @@ fn main() -> Result<()> {
         },
         Commands::Repos(subcmd) => match subcmd {
             ReposCommands::Add { repo } => {
+                let _span = tracing::info_span!("repos.add", repo = %repo).entered();
                 cmd_add(repo)?;
             }
             ReposCommands::Create { repo } => {
+                let _span = tracing::info_span!("repos.create", repo = %repo).entered();
                 cmd_create(repo)?;
             }
             ReposCommands::List { format } => {
+                let _span = tracing::info_span!("repos.list").entered();
                 cmd_list(format)?;
             }
             ReposCommands::Remove { repo, force } => {
+                let _span = tracing::info_span!("repos.remove", repo = %repo).entered();
                 cmd_remove(repo, force)?;
             }
         },
         Commands::Work(subcmd) => match subcmd {
             WorkspaceCommands::Create { repo, branch, name } => {
+                let _span = tracing::info_span!("work.create").entered();
                 cmd_workspace_create(repo, branch, name)?;
             }
             WorkspaceCommands::List { format } => {
+                let _span = tracing::info_span!("work.list").entered();
                 cmd_workspace_list(format)?;
             }
             WorkspaceCommands::Remove { workspace, force } => {
+                let _span = tracing::info_span!("work.remove", workspace = %workspace).entered();
                 cmd_workspace_remove(workspace, force)?;
             }
             WorkspaceCommands::Go { query } => {
+                let _span = tracing::info_span!("work.go").entered();
                 cmd_go(query)?;
             }
             WorkspaceCommands::Status { repo, format } => {
+                let _span = tracing::info_span!("work.status").entered();
                 cmd_workspace_status(repo, format)?;
             }
             WorkspaceCommands::Check {
@@ -330,6 +355,7 @@ fn main() -> Result<()> {
                 merged,
                 format,
             } => {
+                let _span = tracing::info_span!("work.check").entered();
                 cmd_workspace_check(repo, uncommitted, unpushed, merged, format)?;
             }
         },
@@ -730,7 +756,7 @@ fn cmd_go(query: Option<String>) -> Result<()> {
     match select_workspace_with_query(workspaces, query)? {
         Some(workspace) => {
             if let Err(e) = emit_change_directory(&workspace.path) {
-                eprintln!("werx: warning: {}", e);
+                tracing::warn!("emit_change_directory failed: {}", e);
             }
         }
         None => {

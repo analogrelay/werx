@@ -2,6 +2,8 @@ use anyhow::{Context, Result, anyhow};
 use std::path::Path;
 use std::process::Command;
 
+use crate::cmd;
+
 /// Move a branch to the trash namespace: `werx/trash/<original>/<date>`.
 ///
 /// `date` must be in `YYYYMMDD` format and is supplied by the caller so that
@@ -30,10 +32,9 @@ pub fn branch_trash(repo_path: &Path, branch: &str, date: &str) -> Result<String
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 fn resolve_ref(repo_path: &Path, branch: &str) -> Result<String> {
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .args(["-C", &repo_path.to_string_lossy()])
-        .args(["rev-parse", &format!("refs/heads/{}", branch)])
-        .output()
+        .args(["rev-parse", &format!("refs/heads/{}", branch)]))
         .context("Failed to run git rev-parse")?;
 
     if !output.status.success() {
@@ -48,10 +49,9 @@ fn resolve_ref(repo_path: &Path, branch: &str) -> Result<String> {
 }
 
 fn ref_exists(repo_path: &Path, ref_name: &str) -> Result<bool> {
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .args(["-C", &repo_path.to_string_lossy()])
-        .args(["rev-parse", "--verify", &format!("refs/heads/{}", ref_name)])
-        .output()
+        .args(["rev-parse", "--verify", &format!("refs/heads/{}", ref_name)]))
         .context("Failed to run git rev-parse --verify")?;
 
     Ok(output.status.success())
@@ -72,10 +72,9 @@ fn unique_trash_name(repo_path: &Path, base: &str) -> Result<String> {
 }
 
 fn create_ref(repo_path: &Path, ref_name: &str, sha: &str) -> Result<()> {
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .args(["-C", &repo_path.to_string_lossy()])
-        .args(["update-ref", &format!("refs/heads/{}", ref_name), sha])
-        .output()
+        .args(["update-ref", &format!("refs/heads/{}", ref_name), sha]))
         .context("Failed to run git update-ref")?;
 
     if !output.status.success() {
@@ -87,10 +86,9 @@ fn create_ref(repo_path: &Path, ref_name: &str, sha: &str) -> Result<()> {
 
 fn delete_branch(repo_path: &Path, branch: &str) -> Result<()> {
     // Use update-ref -d for reliable deletion in bare repos regardless of merge status
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .args(["-C", &repo_path.to_string_lossy()])
-        .args(["update-ref", "-d", &format!("refs/heads/{}", branch)])
-        .output()
+        .args(["update-ref", "-d", &format!("refs/heads/{}", branch)]))
         .context("Failed to run git update-ref -d")?;
 
     if !output.status.success() {

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 
-use crate::{Werx, repos};
+use crate::{Werx, cmd, repos};
 use crate::trash::branch_trash;
 
 // ── Plan data model (task 4.x) ────────────────────────────────────────────────
@@ -137,10 +137,9 @@ pub struct WorktreeInfo {
 
 /// List all worktrees for a bare repository.
 pub fn list_worktrees(repo_path: &Path) -> Result<Vec<WorktreeInfo>> {
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .args(["-C", &repo_path.to_string_lossy()])
-        .args(["worktree", "list", "--porcelain"])
-        .output()
+        .args(["worktree", "list", "--porcelain"]))
         .context("Failed to run git worktree list")?;
 
     if !output.status.success() {
@@ -209,10 +208,10 @@ fn check_worktree_dirty(worktree_path: &Path) -> bool {
 /// Silently skips remotes that don't exist; propagates other errors.
 pub fn fetch_repo(repo_path: &Path, remotes: &[String]) -> Result<()> {
     for remote in remotes {
-        let output = Command::new("git")
+        tracing::debug!("fetching remote '{}'", remote);
+        let output = cmd::run(Command::new("git")
             .args(["-C", &repo_path.to_string_lossy()])
-            .args(["fetch", "--tags", remote])
-            .output()
+            .args(["fetch", "--tags", remote]))
             .with_context(|| format!("Failed to run git fetch for remote '{}'", remote))?;
 
         if !output.status.success() {
@@ -253,14 +252,13 @@ pub struct BranchInfo {
 /// List all local branches with their upstream tracking information.
 pub fn list_branches_with_upstreams(repo_path: &Path) -> Result<Vec<BranchInfo>> {
     // Use for-each-ref to get branch name, sha, and upstream ref in one shot
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .args(["-C", &repo_path.to_string_lossy()])
         .args([
             "for-each-ref",
             "--format=%(refname:short) %(objectname) %(upstream) %(upstream:short)",
             "refs/heads/",
-        ])
-        .output()
+        ]))
         .context("Failed to run git for-each-ref")?;
 
     if !output.status.success() {
@@ -312,10 +310,9 @@ pub fn list_branches_with_upstreams(repo_path: &Path) -> Result<Vec<BranchInfo>>
 }
 
 fn resolve_sha(repo_path: &Path, ref_name: &str) -> Result<String> {
-    let output = Command::new("git")
+    let output = cmd::run(Command::new("git")
         .args(["-C", &repo_path.to_string_lossy()])
-        .args(["rev-parse", ref_name])
-        .output()
+        .args(["rev-parse", ref_name]))
         .context("Failed to run git rev-parse")?;
 
     if !output.status.success() {
@@ -441,10 +438,10 @@ pub fn build_repo_plan(repo_path: &Path, repo_name: &str, remotes: &[String]) ->
 
 /// Apply a fast-forward via git update-ref.
 pub fn apply_fast_forward(repo_path: &Path, branch: &str, to_sha: &str) -> Result<()> {
-    let output = Command::new("git")
+    tracing::debug!("fast-forwarding branch '{}' to {}", branch, &to_sha[..8.min(to_sha.len())]);
+    let output = cmd::run(Command::new("git")
         .args(["-C", &repo_path.to_string_lossy()])
-        .args(["update-ref", &format!("refs/heads/{}", branch), to_sha])
-        .output()
+        .args(["update-ref", &format!("refs/heads/{}", branch), to_sha]))
         .context("Failed to run git update-ref")?;
 
     if !output.status.success() {
@@ -478,10 +475,9 @@ impl TempWorktree {
     pub fn create(repo_path: &Path, branch_sha: &str) -> Result<Self> {
         let wt_dir = tempfile::TempDir::new().context("Failed to create temp directory")?;
 
-        let output = Command::new("git")
+        let output = cmd::run(Command::new("git")
             .args(["-C", &repo_path.to_string_lossy()])
-            .args(["worktree", "add", "--detach", &wt_dir.path().to_string_lossy(), branch_sha])
-            .output()
+            .args(["worktree", "add", "--detach", &wt_dir.path().to_string_lossy(), branch_sha]))
             .context("Failed to run git worktree add")?;
 
         if !output.status.success() {
@@ -518,18 +514,17 @@ pub fn apply_rebase(repo_path: &Path, branch: &str, onto_sha: &str) -> Result<Re
     let wt = TempWorktree::create(repo_path, &branch_sha)?;
 
     // Attempt the rebase
-    let rebase_output = Command::new("git")
+    tracing::debug!("rebasing branch '{}' onto {}", branch, &onto_sha[..8.min(onto_sha.len())]);
+    let rebase_output = cmd::run(Command::new("git")
         .args(["-C", &wt.path().to_string_lossy()])
-        .args(["rebase", onto_sha])
-        .output()
+        .args(["rebase", onto_sha]))
         .context("Failed to run git rebase")?;
 
     if rebase_output.status.success() {
         // Read the new HEAD
-        let new_sha_output = Command::new("git")
+        let new_sha_output = cmd::run(Command::new("git")
             .args(["-C", &wt.path().to_string_lossy()])
-            .args(["rev-parse", "HEAD"])
-            .output()
+            .args(["rev-parse", "HEAD"]))
             .context("Failed to read new HEAD after rebase")?;
 
         let new_sha = String::from_utf8_lossy(&new_sha_output.stdout)
@@ -565,10 +560,10 @@ pub enum PushOutcome {
 
 /// Push a branch to its tracking remote.
 pub fn push_branch(repo_path: &Path, branch: &str, remote: &str) -> Result<PushOutcome> {
-    let output = Command::new("git")
+    tracing::debug!("pushing branch '{}' to remote '{}'", branch, remote);
+    let output = cmd::run(Command::new("git")
         .args(["-C", &repo_path.to_string_lossy()])
-        .args(["push", remote, branch])
-        .output()
+        .args(["push", remote, branch]))
         .context("Failed to run git push")?;
 
     if output.status.success() {
@@ -635,6 +630,7 @@ pub fn run_sync(
         return Ok(());
     }
 
+    tracing::info!("Planning sync for {} repositories", repos_to_sync.len());
     println!("Planning sync for {} repositories...", repos_to_sync.len());
 
     // ── Plan phase (parallelized, task 12.1) ────────────────────────────────
@@ -656,7 +652,7 @@ pub fn run_sync(
 
     // Report planning errors
     for (repo, err) in &plan_errors {
-        eprintln!("  Warning: failed to plan '{}': {}", repo, err);
+        tracing::warn!("Failed to plan '{}': {}", repo, err);
     }
 
     let sync_plan = SyncPlan { repos: plans };

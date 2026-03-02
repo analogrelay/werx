@@ -20,6 +20,7 @@
 
 ### Other Changes
 
+- Added `tracing`/`tracing-subscriber` for structured diagnostics; enable with `WERX_LOG=debug` (git commands) or `WERX_LOG=trace` (full stdout/stderr); defaults to silent (PR TBD)
 - Added Nix overlay output (`overlays.default`) for easy integration with NixOS and nix-darwin configurations (PR TBD)
 - Added crates.io publishing step to release workflow
 - Added pre-release validation for duplicate GitHub Releases, crates.io versions, and CARGO_REGISTRY_TOKEN
