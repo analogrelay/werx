@@ -1448,3 +1448,58 @@ branch refs/heads/other
         assert_eq!(matches[0].repository, "MyRepo");
     }
 }
+
+// ── Branch helpers for issue/PR flow ─────────────────────────────────────────
+
+/// Return all branch names currently checked out in worktrees for this repository.
+pub fn list_worktree_branches(repo_path: &Path) -> Result<Vec<(String, PathBuf)>> {
+    use crate::sync::list_worktrees;
+    let infos = list_worktrees(repo_path)?;
+    Ok(infos
+        .into_iter()
+        .filter_map(|wt| wt.branch.map(|b| (b, wt.path)))
+        .collect())
+}
+
+/// Create a local branch off `base_branch` if it doesn't already exist.
+/// Returns `true` if the branch was newly created, `false` if it already existed.
+pub fn create_branch_if_absent(repo_path: &Path, branch: &str, base_branch: &str) -> Result<bool> {
+    let check = cmd::run(
+        Command::new("git")
+            .args(["-C", &repo_path.to_string_lossy()])
+            .args(["rev-parse", "--verify", &format!("refs/heads/{}", branch)]),
+    )
+    .context("Failed to check branch existence")?;
+
+    if check.status.success() {
+        return Ok(false);
+    }
+
+    let local_ref = format!("refs/heads/{}", base_branch);
+    let remote_ref = format!("refs/remotes/origin/{}", base_branch);
+
+    let base_sha = if let Ok(sha) = crate::sync::resolve_sha_pub(repo_path, &local_ref) {
+        sha
+    } else if let Ok(sha) = crate::sync::resolve_sha_pub(repo_path, &remote_ref) {
+        sha
+    } else {
+        return Err(anyhow!(
+            "Cannot resolve base branch '{}' — it doesn't exist locally or on origin",
+            base_branch
+        ));
+    };
+
+    let out = cmd::run(
+        Command::new("git")
+            .args(["-C", &repo_path.to_string_lossy()])
+            .args(["update-ref", &format!("refs/heads/{}", branch), &base_sha]),
+    )
+    .context("Failed to create branch")?;
+
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(anyhow!("Failed to create branch '{}': {}", branch, stderr));
+    }
+
+    Ok(true)
+}

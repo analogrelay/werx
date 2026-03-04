@@ -1,14 +1,17 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use tracing_subscriber::{EnvFilter, fmt};
 
 use werx::{
-    add_repo, check_workspace_status, cmd_shell_init, confirm_workspace_removal, create_repo,
-    create_worktree, detect_current_workspace, emit_change_directory, find_repository,
-    get_workspace_status_details, initialize_werx, list_repos, list_workspaces,
-    prompt_workspace_name, remove_repo, remove_workspace, resolve_werx_path, run_sync,
-    select_repository, select_workspace_with_query, Werx, WorkspaceStatusDetails,
+    RepoGithubMeta,
+    add_repo, branch_naming, check_workspace_status, cmd_shell_init, confirm_workspace_removal,
+    create_repo, create_worktree, detect_current_workspace, emit_change_directory,
+    find_repository, get_workspace_status_details, github, initialize_werx, list_repos,
+    list_workspaces, prompt_workspace_name, remove_repo, remove_workspace, resolve_werx_path,
+    run_sync, select_repository, select_workspace_with_query, Werx, WorkspaceStatusDetails,
+    workspace::{create_branch_if_absent, list_worktree_branches},
 };
 
 /// Werx - Manage your code repositories and workspaces
@@ -559,12 +562,20 @@ fn cmd_workspace_create(
     // Find the Werx
     let werx = find_werx()?;
 
+    // If the first positional arg looks like a GitHub reference (#N), treat it as the branch arg
+    // so that `werx wt create #1234` works without specifying a repo explicitly.
+    let (repo_spec, branch) = if repo_spec.as_deref().map(|s| s.starts_with('#')).unwrap_or(false)
+        && branch.is_none()
+    {
+        (None, repo_spec)
+    } else {
+        (repo_spec, branch)
+    };
+
     // Resolve repository
     let repo_info = if let Some(spec) = repo_spec {
-        // Repository specified explicitly
         find_repository(&werx, &spec)?
     } else {
-        // Try to detect current workspace
         let current_dir = std::env::current_dir()?;
         if let Some(repo) = detect_current_workspace(&current_dir, &werx)? {
             println!();
@@ -574,16 +585,23 @@ fn cmd_workspace_create(
             );
             repo
         } else {
-            // Interactive selector
             select_repository(&werx)?
         }
     };
 
-    // Determine branch
+    // Check if branch arg is a GitHub issue/PR reference
+    if let Some(ref b) = branch {
+        if let Some(number_str) = b.strip_prefix('#') {
+            if let Ok(number) = number_str.parse::<u64>() {
+                return cmd_workspace_create_from_issue_pr(&werx, repo_info, number, name);
+            }
+        }
+    }
+
+    // Normal branch-based workspace creation
     let branch_name = if let Some(b) = branch {
         b
     } else {
-        // Use repository's default branch
         repo_info.default_branch.clone().ok_or_else(|| {
             anyhow::anyhow!(
                 "Could not determine default branch for repository.\n\
@@ -592,18 +610,15 @@ fn cmd_workspace_create(
         })?
     };
 
-    // Determine workspace name
     let workspace_name = if let Some(n) = name {
         n
     } else {
-        // Prompt for workspace name with branch name as default
         prompt_workspace_name(&branch_name)?
     };
 
     println!();
     println!("Creating workspace...");
 
-    // Create the worktree
     let workspace_path = create_worktree(&werx, &repo_info, &workspace_name, &branch_name)?;
 
     println!();
@@ -611,6 +626,152 @@ fn cmd_workspace_create(
     println!();
     println!("  Repository: {}", repo_info.clone_url);
     println!("  Branch:     {}", branch_name);
+    println!("  Workspace:  {}/{}", repo_info.dir_name, workspace_name);
+    println!("  Path:       {}", workspace_path.display());
+    println!();
+    println!("Next steps:");
+    println!("  cd {}", workspace_path.display());
+    println!();
+
+    Ok(())
+}
+
+/// Handle `werx wt create <repo> #<number>` — resolve GitHub issue or PR reference.
+fn cmd_workspace_create_from_issue_pr(
+    werx: &Werx,
+    repo_info: werx::RepoInfo,
+    number: u64,
+    workspace_name_override: Option<String>,
+) -> Result<()> {
+    // Task 7.9: require gh in PATH
+    if !github::is_gh_available() {
+        return Err(anyhow::anyhow!(
+            "The `gh` CLI is required for GitHub issue/PR resolution but was not found in PATH.\n\
+             Install it from https://cli.github.com/"
+        ));
+    }
+
+    // Task 7.2: require werx-repo.toml for the target repo
+    let repo_path = werx.repos_dir().join(&repo_info.dir_name);
+    let repo_meta = RepoGithubMeta::load(&repo_path)?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "No GitHub metadata found for repository '{}'.\n\
+                 Run `werx repo add` again (or re-clone) to populate fork metadata.\n\
+                 Alternatively, add the repository via `werx add` to trigger detection.",
+                repo_info.dir_name
+            )
+        })?;
+
+    let owner = &repo_meta.owner;
+    let repo_name = &repo_meta.repo;
+    let default_branch = &repo_meta.default_branch;
+
+    // Task 7.3: Try PR first
+    match github::fetch_pr(owner, repo_name, number) {
+        Ok(pr) => {
+            let branch = &pr.head_ref_name;
+
+            // Task 7.7: check for existing worktree
+            let worktrees = list_worktree_branches(&repo_path)?;
+            if let Some((_, path)) = worktrees.iter().find(|(b, _)| b == branch) {
+                println!();
+                println!("Workspace already exists for branch '{}':", branch);
+                println!("  {}", path.display());
+                return Ok(());
+            }
+
+            let workspace_name = workspace_name_override
+                .unwrap_or_else(|| branch.replace('/', "-"));
+
+            println!();
+            println!("Creating workspace for PR #{} (branch: {})...", number, branch);
+
+            let workspace_path = create_worktree(werx, &repo_info, &workspace_name, branch)?;
+
+            println!();
+            println!("Workspace created successfully!");
+            println!("  PR:         #{}", number);
+            println!("  Branch:     {}", branch);
+            println!("  Workspace:  {}/{}", repo_info.dir_name, workspace_name);
+            println!("  Path:       {}", workspace_path.display());
+            println!();
+            println!("Next steps:");
+            println!("  cd {}", workspace_path.display());
+            println!();
+            return Ok(());
+        }
+        Err(e) => {
+            tracing::debug!("#{} is not a PR ({}), trying as issue", number, e);
+        }
+    }
+
+    // Task 7.4: Try issue
+    let issue = github::fetch_issue(owner, repo_name, number).map_err(|e| {
+        // Task 7.8: error when neither PR nor issue
+        anyhow::anyhow!(
+            "#{} is neither a PR nor an issue in {}/{}: {}",
+            number,
+            owner,
+            repo_name,
+            e
+        )
+    })?;
+
+    // Task 7.5 / 7.6: Issue flow
+    let mut config = werx.load_config()?;
+
+    let username = branch_naming::resolve_username(werx, &mut config)?;
+    let default_slug = branch_naming::generate_slug(werx, &config, &issue.title, &issue.body);
+
+    let topic_slug = if std::io::stdin().is_terminal() {
+        // Interactive: prompt with pre-filled default (task 7.5)
+        let slug: String =
+            dialoguer::Input::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                .with_prompt("Branch slug")
+                .default(default_slug)
+                .interact_text()
+                .map_err(|e| anyhow::anyhow!("Failed to prompt for branch slug: {}", e))?;
+        slug.trim().to_string()
+    } else {
+        // Non-interactive: use generated slug directly (task 7.6)
+        default_slug
+    };
+
+    let branch = branch_naming::make_branch_name(&username, Some(number), &topic_slug);
+
+    // Task 7.7: check for existing worktree
+    let worktrees = list_worktree_branches(&repo_path)?;
+    if let Some((_, path)) = worktrees.iter().find(|(b, _)| b == &branch) {
+        println!();
+        println!("Workspace already exists for branch '{}':", branch);
+        println!("  {}", path.display());
+        return Ok(());
+    }
+
+    // Ensure branch exists locally (create from default branch if absent)
+    create_branch_if_absent(&repo_path, &branch, default_branch)?;
+
+    let workspace_name = workspace_name_override.unwrap_or_else(|| {
+        // Use the slug part of the branch name (after username/) for the workspace name
+        branch
+            .find('/')
+            .map(|i| branch[i + 1..].to_string())
+            .unwrap_or_else(|| branch.clone())
+    });
+
+    println!();
+    println!(
+        "Creating workspace for issue #{} (branch: {})...",
+        number, branch
+    );
+
+    let workspace_path = create_worktree(werx, &repo_info, &workspace_name, &branch)?;
+
+    println!();
+    println!("Workspace created successfully!");
+    println!("  Issue:      #{} — {}", number, issue.title);
+    println!("  Branch:     {}", branch);
     println!("  Workspace:  {}/{}", repo_info.dir_name, workspace_name);
     println!("  Path:       {}", workspace_path.display());
     println!();

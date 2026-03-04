@@ -1,8 +1,11 @@
+pub mod branch_naming;
 pub mod cmd;
 pub mod config;
 pub mod directive;
+pub mod github;
 pub mod init;
 pub mod path;
+pub mod repo_meta;
 pub mod repo_spec;
 pub mod repos;
 pub mod shell;
@@ -13,7 +16,8 @@ pub mod workspace;
 
 use std::path::PathBuf;
 
-pub use config::{Config, Protocol, SyncConfig};
+pub use config::{AgentConfig, Config, GithubConfig, Protocol, SyncConfig};
+pub use repo_meta::RepoGithubMeta;
 pub use sync::run_sync;
 pub use directive::emit_change_directory;
 pub use init::initialize_werx;

@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use crate::{Protocol, RepoSpec, Werx, cmd};
+use crate::{Protocol, RepoGithubMeta, RepoSpec, Werx, cmd, github};
 
 /// Repository information for listing
 #[derive(Debug, Clone, Serialize)]
@@ -66,6 +66,9 @@ pub fn add_repo(werx: &Werx, repo_spec: &str) -> Result<RepoSpec> {
     let repo_dir = werx.repos_dir().join(&dir_name);
     tracing::info!("Cloning repository: {}", spec.clone_url);
     clone_bare_repo(&spec.clone_url, &repo_dir)?;
+
+    // Detect and persist GitHub fork metadata (best-effort; never aborts the add)
+    detect_and_save_fork_meta(&spec, &repo_dir, config.protocol());
 
     tracing::info!("Repository added successfully: {} → .werx/repos/{}", spec.clone_url, dir_name);
     println!();
@@ -292,6 +295,140 @@ pub fn remove_repo(werx: &Werx, repo_spec: &str, force: bool) -> Result<()> {
     println!();
 
     Ok(())
+}
+
+// ── Fork detection ────────────────────────────────────────────────────────────
+
+/// After a successful bare clone, detect whether the repo is a GitHub fork and persist metadata.
+/// Silently skips if `gh` is unavailable or the remote is not a GitHub URL.
+/// Prints a warning on API failure but never aborts the `add_repo` operation.
+fn detect_and_save_fork_meta(spec: &RepoSpec, repo_dir: &Path, protocol: Option<Protocol>) {
+    let (owner, repo_name) = match github::parse_github_owner_repo(&spec.clone_url) {
+        Some(pair) => pair,
+        None => return, // Not a GitHub URL
+    };
+
+    if !github::is_gh_available() {
+        tracing::debug!(
+            "gh CLI not available, skipping fork detection for {}/{}",
+            owner,
+            repo_name
+        );
+        return;
+    }
+
+    let gh_meta = match github::fetch_repo_meta(&owner, &repo_name) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Warning: failed to fetch GitHub metadata for {}/{}: {}", owner, repo_name, e);
+            return;
+        }
+    };
+
+    let default_branch = gh_meta.default_branch_ref.name.clone();
+
+    let (is_fork, upstream_owner, upstream_repo, upstream_default_branch, upstream_url) =
+        if gh_meta.is_fork {
+            if let Some(parent) = gh_meta.parent {
+                let mut parts = parent.name_with_owner.splitn(2, '/');
+                let up_owner = parts.next().unwrap_or("").to_string();
+                let up_repo = parts.next().unwrap_or("").to_string();
+                if up_owner.is_empty() || up_repo.is_empty() {
+                    eprintln!("Warning: could not parse upstream repo from '{}'", parent.name_with_owner);
+                    return;
+                }
+                let up_branch = parent.default_branch_ref.as_ref().map(|b| b.name.clone());
+                let url = generate_upstream_url(&spec.clone_url, &up_owner, &up_repo, protocol);
+                (true, Some(up_owner), Some(up_repo), up_branch, Some(url))
+            } else {
+                (true, None, None, None, None)
+            }
+        } else {
+            (false, None, None, None, None)
+        };
+
+    let meta = RepoGithubMeta {
+        owner,
+        repo: repo_name,
+        is_fork,
+        upstream_owner,
+        upstream_repo,
+        default_branch,
+        upstream_default_branch,
+    };
+
+    if let Err(e) = meta.save(repo_dir) {
+        eprintln!("Warning: failed to save fork metadata: {}", e);
+        return;
+    }
+
+    if let Some(url) = upstream_url {
+        if let Err(e) = ensure_upstream_remote(repo_dir, &url) {
+            eprintln!("Warning: failed to configure upstream remote: {}", e);
+        }
+    }
+}
+
+/// Add the `upstream` remote if absent, or update its URL if it points elsewhere.
+pub fn ensure_upstream_remote(repo_dir: &Path, upstream_url: &str) -> Result<()> {
+    let check = cmd::run(
+        Command::new("git")
+            .args(["-C", &repo_dir.to_string_lossy()])
+            .args(["remote", "get-url", "upstream"]),
+    )
+    .context("Failed to query upstream remote")?;
+
+    if check.status.success() {
+        let existing = String::from_utf8_lossy(&check.stdout).trim().to_string();
+        if existing == upstream_url {
+            tracing::debug!("upstream remote already correct ({})", upstream_url);
+            return Ok(());
+        }
+        tracing::debug!("updating upstream remote URL to {}", upstream_url);
+        let out = cmd::run(
+            Command::new("git")
+                .args(["-C", &repo_dir.to_string_lossy()])
+                .args(["remote", "set-url", "upstream", upstream_url]),
+        )
+        .context("Failed to update upstream remote URL")?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            return Err(anyhow!("git remote set-url upstream failed: {}", stderr));
+        }
+    } else {
+        tracing::debug!("adding upstream remote: {}", upstream_url);
+        let out = cmd::run(
+            Command::new("git")
+                .args(["-C", &repo_dir.to_string_lossy()])
+                .args(["remote", "add", "upstream", upstream_url]),
+        )
+        .context("Failed to add upstream remote")?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            return Err(anyhow!("git remote add upstream failed: {}", stderr));
+        }
+    }
+    Ok(())
+}
+
+/// Generate the upstream clone URL using the same protocol as the origin.
+fn generate_upstream_url(
+    origin_url: &str,
+    up_owner: &str,
+    up_repo: &str,
+    protocol: Option<Protocol>,
+) -> String {
+    // Prefer explicit protocol, otherwise infer from origin URL format
+    let use_ssh = match protocol {
+        Some(Protocol::Ssh) => true,
+        Some(Protocol::Https) => false,
+        None => origin_url.starts_with("git@"),
+    };
+    if use_ssh {
+        format!("git@github.com:{}/{}.git", up_owner, up_repo)
+    } else {
+        format!("https://github.com/{}/{}.git", up_owner, up_repo)
+    }
 }
 
 /// Clone a repository as a bare clone

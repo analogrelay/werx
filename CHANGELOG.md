@@ -11,6 +11,10 @@
 - Resolved clippy warnings and formatting issues
 - Added `werx sync [<repospec>]` command with Plan → Confirm → Execute workflow: fetch remotes, fast-forward/rebase tracking branches, push local branches, and trash stale branches; `--dry-run` and `--no-confirm` flags; live progress display; parallelized across repos (PR TBD)
 - Added shared `branch_trash()` utility in `src/trash.rs` for safe branch removal to `werx/trash/<original>/<YYYYMMDD>` (PR TBD)
+- Added GitHub fork tracking: on `werx add`, detect if the cloned repo is a GitHub fork via the `gh` CLI, persist fork metadata to `werx-repo.toml` beside the bare clone, and automatically configure an `upstream` remote pointing to the parent repo (PR TBD)
+- Added upstream-aware sync: `werx sync` now fast-forwards fork branches from `upstream/<branch>` before pushing to `origin`; branches that have diverged from upstream are marked as skipped with a "needs manual rebase" note (PR TBD)
+- Added `werx wt create <repo> #<N>` to create worktrees directly from GitHub issue or PR numbers; PR references check out the PR HEAD branch, issue references generate a branch name via the configured naming pattern and optionally invoke a coding agent for the slug (PR TBD)
+- Added branch naming service (`src/branch_naming.rs`): `username/[N-]topic` pattern, GitHub username auto-detection via `gh api user` with caching in `werx.toml`, and AI-assisted slug generation via Claude or GitHub Copilot CLI (PR TBD)
 
 ### Breaking Changes
 

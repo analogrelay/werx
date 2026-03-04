@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 
-use crate::{Werx, cmd, repos};
+use crate::{Werx, cmd, repo_meta::RepoGithubMeta, repos};
 use crate::trash::branch_trash;
 
 // ── Plan data model (task 4.x) ────────────────────────────────────────────────
@@ -19,6 +19,11 @@ pub enum BranchAction {
     FastForward {
         branch: String,
         from_sha: String,
+        to_sha: String,
+    },
+    /// Fast-forward local branch from `upstream/<branch>`, then push to origin.
+    FastForwardFromUpstream {
+        branch: String,
         to_sha: String,
     },
     Rebase {
@@ -56,9 +61,7 @@ impl SyncPlan {
     /// Returns true if the plan contains any mutating actions.
     pub fn has_mutations(&self) -> bool {
         self.repos.iter().any(|r| {
-            r.actions.iter().any(|a| {
-                !matches!(a, BranchAction::Skip { .. })
-            })
+            r.actions.iter().any(|a| !matches!(a, BranchAction::Skip { .. }))
         })
     }
 
@@ -97,6 +100,14 @@ pub fn format_plan(plan: &SyncPlan) -> String {
                         "    {} fast-forward  {}..{}",
                         branch,
                         &from_sha[..8.min(from_sha.len())],
+                        &to_sha[..8.min(to_sha.len())]
+                    );
+                }
+                BranchAction::FastForwardFromUpstream { branch, to_sha } => {
+                    let _ = writeln!(
+                        out,
+                        "    {} fast-forward from upstream  ..{}",
+                        branch,
                         &to_sha[..8.min(to_sha.len())]
                     );
                 }
@@ -310,6 +321,11 @@ pub fn list_branches_with_upstreams(repo_path: &Path) -> Result<Vec<BranchInfo>>
 }
 
 fn resolve_sha(repo_path: &Path, ref_name: &str) -> Result<String> {
+    resolve_sha_pub(repo_path, ref_name)
+}
+
+/// Public re-export of SHA resolution for use by workspace helpers.
+pub fn resolve_sha_pub(repo_path: &Path, ref_name: &str) -> Result<String> {
     let output = cmd::run(Command::new("git")
         .args(["-C", &repo_path.to_string_lossy()])
         .args(["rev-parse", ref_name]))
@@ -338,10 +354,31 @@ pub fn build_repo_plan(repo_path: &Path, repo_name: &str, remotes: &[String]) ->
     // 1. Fetch
     fetch_repo(repo_path, remotes)?;
 
-    // 2. List worktrees
+    // 2. Load optional GitHub fork metadata (task 8.1)
+    let fork_meta = RepoGithubMeta::load(repo_path)
+        .unwrap_or_else(|e| {
+            tracing::warn!("Failed to load fork metadata for '{}': {}", repo_name, e);
+            None
+        });
+
+    // 3. If fork, check whether `upstream` remote is present
+    let upstream_remote_present = fork_meta.as_ref().map_or(false, |_| {
+        check_remote_exists(repo_path, "upstream")
+    });
+
+    if fork_meta.is_some() && !upstream_remote_present {
+        tracing::warn!(
+            "Fork metadata present for '{}' but `upstream` remote is missing; \
+             falling back to normal origin sync",
+            repo_name
+        );
+        // task 8.6: warn and fall back
+    }
+
+    // 4. List worktrees
     let worktrees = list_worktrees(repo_path)?;
 
-    // 3. List branches with upstreams
+    // 5. List branches with upstreams
     let branches = list_branches_with_upstreams(repo_path)?;
 
     let mut actions: Vec<BranchAction> = Vec::new();
@@ -350,10 +387,39 @@ pub fn build_repo_plan(repo_path: &Path, repo_name: &str, remotes: &[String]) ->
         // Active-worktree guard
         let active_wt = worktrees.iter().find(|wt| wt.branch.as_deref() == Some(&branch.name));
 
+        // For fork repos with a functioning upstream remote, check `upstream/<branch>` (task 8.2)
+        if fork_meta.is_some() && upstream_remote_present {
+            let upstream_ref = format!("refs/remotes/upstream/{}", branch.name);
+            if let Ok(upstream_sha) = resolve_sha(repo_path, &upstream_ref) {
+                // upstream/<branch> exists (task 8.2)
+                if is_ancestor(repo_path, &branch.local_sha, &upstream_sha) {
+                    if branch.local_sha == upstream_sha {
+                        // Already in sync with upstream — fall through to normal push logic
+                    } else {
+                        // Local is behind upstream — fast-forward from upstream (task 8.3)
+                        actions.push(BranchAction::FastForwardFromUpstream {
+                            branch: branch.name.clone(),
+                            to_sha: upstream_sha,
+                        });
+                        continue;
+                    }
+                } else if !is_ancestor(repo_path, &upstream_sha, &branch.local_sha) {
+                    // Diverged — skip this branch entirely (task 8.4)
+                    actions.push(BranchAction::Skip {
+                        branch: branch.name.clone(),
+                        reason: "diverged from upstream — needs manual rebase".to_string(),
+                    });
+                    continue;
+                }
+                // else: upstream is ancestor of local (local is ahead) — fall through to normal logic
+            }
+            // No upstream/<branch> ref → fall through to normal sync logic (task 8.7)
+        }
+
+        // Normal origin-based sync logic
         match &branch.upstream_sha {
             None if branch.upstream_ref.is_some() => {
                 // upstream ref existed in config but no longer resolves → stale
-                // Active worktree blocks trash
                 if let Some(wt) = active_wt {
                     let reason = if wt.dirty {
                         "active worktree (dirty)".to_string()
@@ -372,12 +438,9 @@ pub fn build_repo_plan(repo_path: &Path, repo_name: &str, remotes: &[String]) ->
                 }
             }
             Some(upstream_sha) => {
-                // Has a live upstream
                 if branch.local_sha == *upstream_sha {
-                    // Already in sync — check push
-                    // (up to date, nothing to push)
+                    // Already in sync, nothing to do
                 } else if is_ancestor(repo_path, &branch.local_sha, upstream_sha) {
-                    // Can fast-forward
                     if let Some(wt) = active_wt {
                         if wt.dirty {
                             actions.push(BranchAction::Skip {
@@ -393,7 +456,6 @@ pub fn build_repo_plan(repo_path: &Path, repo_name: &str, remotes: &[String]) ->
                         to_sha: upstream_sha.clone(),
                     });
                 } else if is_ancestor(repo_path, upstream_sha, &branch.local_sha) {
-                    // Local is ahead → push
                     if let Some(remote) = &branch.upstream_remote {
                         actions.push(BranchAction::Push {
                             branch: branch.name.clone(),
@@ -401,8 +463,7 @@ pub fn build_repo_plan(repo_path: &Path, repo_name: &str, remotes: &[String]) ->
                         });
                     }
                 } else {
-                    // Diverged: force-push would be required
-                    // Check if it can rebase or if we must skip
+                    // Diverged
                     if let Some(wt) = active_wt {
                         let reason = if wt.dirty {
                             "active worktree (dirty)".to_string()
@@ -414,7 +475,6 @@ pub fn build_repo_plan(repo_path: &Path, repo_name: &str, remotes: &[String]) ->
                             reason,
                         });
                     } else {
-                        // Try rebase
                         actions.push(BranchAction::Rebase {
                             branch: branch.name.clone(),
                             onto_sha: upstream_sha.clone(),
@@ -432,6 +492,16 @@ pub fn build_repo_plan(repo_path: &Path, repo_name: &str, remotes: &[String]) ->
         repo: repo_name.to_string(),
         actions,
     })
+}
+
+/// Returns true if the given remote name is configured in the repository.
+fn check_remote_exists(repo_path: &Path, remote: &str) -> bool {
+    Command::new("git")
+        .args(["-C", &repo_path.to_string_lossy()])
+        .args(["remote", "get-url", remote])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 // ── Execute phase — Fast Forward (task 7.x) ────────────────────────────────────
@@ -706,6 +776,7 @@ pub fn run_sync(
             let outcome = execute_action(&repo_path, action, &today);
             let (branch_name, result) = match action {
                 BranchAction::FastForward { branch, .. } => (branch.clone(), outcome),
+                BranchAction::FastForwardFromUpstream { branch, .. } => (branch.clone(), outcome),
                 BranchAction::Rebase { branch, .. } => (branch.clone(), outcome),
                 BranchAction::Push { branch, .. } => (branch.clone(), outcome),
                 BranchAction::Trash { branch, .. } => (branch.clone(), outcome),
@@ -745,6 +816,21 @@ fn execute_action(repo_path: &Path, action: &BranchAction, date: &str) -> Result
         BranchAction::FastForward { branch, to_sha, .. } => {
             apply_fast_forward(repo_path, branch, to_sha)?;
             Ok(ActionOutcome::Done(format!("fast-forwarded {}", branch)))
+        }
+        BranchAction::FastForwardFromUpstream { branch, to_sha } => {
+            // Advance local branch to upstream tip (task 8.5)
+            apply_fast_forward(repo_path, branch, to_sha)?;
+            // Push to origin
+            match push_branch(repo_path, branch, "origin")? {
+                PushOutcome::Pushed | PushOutcome::UpToDate => {}
+                PushOutcome::ForcePushRequired => {
+                    tracing::warn!("force-push required to push '{}' to origin after upstream ff", branch);
+                }
+                PushOutcome::NoUpstream => {
+                    tracing::debug!("'{}' has no upstream tracking branch on origin, skip push", branch);
+                }
+            }
+            Ok(ActionOutcome::Done(format!("fast-forwarded {} from upstream", branch)))
         }
         BranchAction::Rebase { branch, onto_sha } => {
             match apply_rebase(repo_path, branch, onto_sha)? {

@@ -63,6 +63,25 @@ impl Default for ProviderConfig {
     }
 }
 
+/// GitHub configuration
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GithubConfig {
+    /// Cached GitHub username for branch naming
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    /// Branch naming pattern (currently only "username/issue-topic" is supported)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_pattern: Option<String>,
+}
+
+/// Agent configuration for AI-assisted branch slug generation
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentConfig {
+    /// Agent to use for slug generation ("claude" or "copilot")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+}
+
 /// Sync configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SyncConfig {
@@ -85,6 +104,14 @@ pub struct Config {
     /// Sync settings
     #[serde(default)]
     pub sync: SyncConfig,
+
+    /// GitHub settings
+    #[serde(default)]
+    pub github: GithubConfig,
+
+    /// Agent settings for AI-assisted branch naming
+    #[serde(default)]
+    pub agent: AgentConfig,
 }
 
 impl Config {
@@ -225,6 +252,61 @@ mod tests {
     fn test_protocol_display() {
         assert_eq!(Protocol::Ssh.to_string(), "ssh");
         assert_eq!(Protocol::Https.to_string(), "https");
+    }
+
+    // ===== GithubConfig / AgentConfig serialization tests (tasks 1.1-1.3) =====
+
+    #[test]
+    fn test_github_config_defaults() {
+        let config = Config::default();
+        assert!(config.github.username.is_none());
+        assert!(config.github.branch_pattern.is_none());
+        assert!(config.agent.agent.is_none());
+    }
+
+    #[test]
+    fn test_github_config_round_trip() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("config.toml");
+
+        let mut config = Config::default();
+        config.github.username = Some("alice".to_string());
+        config.github.branch_pattern = Some("username/issue-topic".to_string());
+        config.agent.agent = Some("claude".to_string());
+        config.save(&path).unwrap();
+
+        let loaded = Config::load(&path).unwrap();
+        assert_eq!(loaded.github.username.as_deref(), Some("alice"));
+        assert_eq!(loaded.github.branch_pattern.as_deref(), Some("username/issue-topic"));
+        assert_eq!(loaded.agent.agent.as_deref(), Some("claude"));
+    }
+
+    #[test]
+    fn test_github_config_toml_sections() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("config.toml");
+
+        let mut config = Config::default();
+        config.github.username = Some("bob".to_string());
+        config.agent.agent = Some("copilot".to_string());
+        config.save(&path).unwrap();
+
+        let contents = fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("[github]"), "expected [github] section");
+        assert!(contents.contains("[agent]"), "expected [agent] section");
+        assert!(contents.contains("username = \"bob\""));
+        assert!(contents.contains("agent = \"copilot\""));
+    }
+
+    #[test]
+    fn test_config_without_github_sections_is_valid() {
+        let toml = r#"
+[provider]
+default = "github"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.github.username.is_none());
+        assert!(config.agent.agent.is_none());
     }
 
     // ===== SyncConfig / sync_remotes tests (task 3.4) =====
