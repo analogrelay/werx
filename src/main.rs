@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use tracing_subscriber::{EnvFilter, fmt};
 
 use werx::{
-    RepoGithubMeta,
+    AppContext, RepoGithubMeta,
     add_repo, branch_naming, check_workspace_status, cmd_shell_init, confirm_workspace_removal,
     create_repo, create_worktree, detect_current_workspace, emit_change_directory,
     find_repository, get_workspace_status_details, github, initialize_werx, list_repos,
@@ -20,6 +20,10 @@ use werx::{
 #[command(about = "Manage your code repositories and workspaces", long_about = None)]
 #[command(version)]
 struct Cli {
+    /// Enable verbose output (shows full git command output)
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -266,8 +270,13 @@ enum WorkspaceCommands {
 }
 
 fn main() -> Result<()> {
-    let env_filter = EnvFilter::try_from_env("WERX_LOG")
-        .unwrap_or_else(|_| EnvFilter::new("off"));
+    let cli = Cli::parse();
+
+    let env_filter = if cli.verbose {
+        EnvFilter::new("werx=debug")
+    } else {
+        EnvFilter::try_from_env("WERX_LOG").unwrap_or_else(|_| EnvFilter::new("off"))
+    };
 
     fmt::Subscriber::builder()
         .with_env_filter(env_filter)
@@ -276,7 +285,7 @@ fn main() -> Result<()> {
         .compact()
         .init();
 
-    let cli = Cli::parse();
+    let ctx = AppContext::new(cli.verbose);
 
     match cli.command {
         Commands::Init {
@@ -289,7 +298,7 @@ fn main() -> Result<()> {
         }
         Commands::Add { repo } => {
             let _span = tracing::info_span!("repos.add", repo = %repo).entered();
-            cmd_add(repo)?;
+            cmd_add(repo, &ctx)?;
         }
         Commands::Create { repo } => {
             let _span = tracing::info_span!("repos.create", repo = %repo).entered();
@@ -301,7 +310,7 @@ fn main() -> Result<()> {
             no_confirm,
         } => {
             let _span = tracing::info_span!("sync").entered();
-            cmd_sync(repospec, dry_run, no_confirm)?;
+            cmd_sync(repospec, dry_run, no_confirm, &ctx)?;
         }
         Commands::Go { query } => {
             let _span = tracing::info_span!("go").entered();
@@ -315,7 +324,7 @@ fn main() -> Result<()> {
         Commands::Repos(subcmd) => match subcmd {
             ReposCommands::Add { repo } => {
                 let _span = tracing::info_span!("repos.add", repo = %repo).entered();
-                cmd_add(repo)?;
+                cmd_add(repo, &ctx)?;
             }
             ReposCommands::Create { repo } => {
                 let _span = tracing::info_span!("repos.create", repo = %repo).entered();
@@ -422,13 +431,9 @@ fn cmd_init(cli_path: Option<PathBuf>, force: bool, protocol_str: Option<String>
     Ok(())
 }
 
-fn cmd_add(repo: String) -> Result<()> {
-    // Find the Werx
+fn cmd_add(repo: String, ctx: &AppContext) -> Result<()> {
     let werx = find_werx()?;
-
-    // Add the repository
-    add_repo(&werx, &repo)?;
-
+    add_repo(&werx, &repo, ctx)?;
     Ok(())
 }
 
@@ -1422,7 +1427,7 @@ fn print_check_json(
     Ok(())
 }
 
-fn cmd_sync(repospec: Option<String>, dry_run: bool, no_confirm: bool) -> Result<()> {
+fn cmd_sync(repospec: Option<String>, dry_run: bool, no_confirm: bool, ctx: &AppContext) -> Result<()> {
     let werx = find_werx()?;
-    run_sync(&werx, repospec.as_deref(), dry_run, no_confirm)
+    run_sync(&werx, repospec.as_deref(), dry_run, no_confirm, ctx)
 }

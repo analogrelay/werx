@@ -1,11 +1,13 @@
 use anyhow::{Context, Result, anyhow};
+use console::style;
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use crate::{Protocol, RepoGithubMeta, RepoSpec, Werx, cmd, github};
+use crate::{AppContext, Protocol, RepoGithubMeta, RepoSpec, Werx, cmd, github};
+use crate::reporter::OperationHandle;
 
 /// Repository information for listing
 #[derive(Debug, Clone, Serialize)]
@@ -25,7 +27,7 @@ pub struct RepoInfo {
 }
 
 /// Add a repository to the Werx
-pub fn add_repo(werx: &Werx, repo_spec: &str) -> Result<RepoSpec> {
+pub fn add_repo(werx: &Werx, repo_spec: &str, ctx: &AppContext) -> Result<RepoSpec> {
     // Load config
     let mut config = werx.load_config()?;
 
@@ -65,19 +67,26 @@ pub fn add_repo(werx: &Werx, repo_spec: &str) -> Result<RepoSpec> {
     // Clone the repository
     let repo_dir = werx.repos_dir().join(&dir_name);
     tracing::info!("Cloning repository: {}", spec.clone_url);
-    clone_bare_repo(&spec.clone_url, &repo_dir)?;
+    let handle = ctx.reporter.start_operation(&format!("Cloning {}", spec.clone_url));
+    match clone_bare_repo(&spec.clone_url, &repo_dir, &handle) {
+        Ok(()) => handle.finish_ok(&format!("Cloned {}", spec.clone_url)),
+        Err(e) => {
+            handle.finish_err(&format!("Failed to clone {}", spec.clone_url));
+            return Err(e);
+        }
+    }
 
     // Detect and persist GitHub fork metadata (best-effort; never aborts the add)
     detect_and_save_fork_meta(&spec, &repo_dir, config.protocol());
 
     tracing::info!("Repository added successfully: {} → .werx/repos/{}", spec.clone_url, dir_name);
-    println!();
-    println!("Repository added successfully!");
-    println!();
-    println!("  Specification: {}", spec.original);
-    println!("  Clone URL:     {}", spec.clone_url);
-    println!("  Location:      .werx/repos/{}", dir_name);
-    println!();
+    ctx.reporter.println(&format!(
+        "\n{}\n\n  Specification: {}\n  Clone URL:     {}\n  Location:      .werx/repos/{}\n",
+        style("Repository added successfully!").bold().green(),
+        style(&spec.original).cyan(),
+        spec.clone_url,
+        style(&dir_name).cyan(),
+    ));
 
     Ok(spec)
 }
@@ -432,13 +441,16 @@ fn generate_upstream_url(
 }
 
 /// Clone a repository as a bare clone
-fn clone_bare_repo(url: &str, dest: &Path) -> Result<()> {
-    let output = cmd::run(Command::new("git")
-        .arg("clone")
-        .arg("--bare")
-        .arg(url)
-        .arg(dest))
-        .context("Failed to execute git clone command")?;
+fn clone_bare_repo(url: &str, dest: &Path, handle: &OperationHandle) -> Result<()> {
+    let output = cmd::run_with_reporter(
+        Command::new("git")
+            .arg("clone")
+            .arg("--bare")
+            .arg(url)
+            .arg(dest),
+        handle,
+    )
+    .context("Failed to execute git clone command")?;
 
     if !output.status.success() {
         // Clean up partial clone if it exists

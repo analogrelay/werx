@@ -7,6 +7,11 @@
 
 ### Features Added
 
+- Added global `--verbose` / `-v` flag that enables `werx=debug` tracing and verbose git output (PR TBD)
+- Added animated progress spinners (via `indicatif`) during `werx add` and `werx sync`, showing scrolling git output in TTY mode and plain lines in non-TTY/piped mode (PR TBD)
+- Added colored plan and summary output to `werx sync` using `console::style()`: repo names in cyan/bold, fast-forwards with green `^`, pushes with blue `->`, trash with yellow, skips dimmed (PR TBD)
+- Added colored success message to `werx add` (green bold header, cyan spec/location) (PR TBD)
+
 - Fixed namedata module structure by converting to a single Rust file
 - Resolved clippy warnings and formatting issues
 - Added `werx sync [<repospec>]` command with Plan → Confirm → Execute workflow: fetch remotes, fast-forward/rebase tracking branches, push local branches, and trash stale branches; `--dry-run` and `--no-confirm` flags; live progress display; parallelized across repos (PR TBD)

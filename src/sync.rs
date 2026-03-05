@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow};
+use console::style;
 use dialoguer::Confirm;
 use dialoguer::theme::ColorfulTheme;
 use rayon::prelude::*;
@@ -8,7 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 
-use crate::{Werx, cmd, repo_meta::RepoGithubMeta, repos};
+use crate::{AppContext, Werx, cmd, repo_meta::RepoGithubMeta, repos};
+use crate::reporter::OperationHandle;
 use crate::trash::branch_trash;
 
 // ── Plan data model (task 4.x) ────────────────────────────────────────────────
@@ -87,7 +89,7 @@ pub fn format_plan(plan: &SyncPlan) -> String {
         return out;
     }
     for repo in &plan.repos {
-        let _ = writeln!(out, "  {}:", repo.repo);
+        let _ = writeln!(out, "  {}:", style(&repo.repo).cyan().bold());
         if repo.actions.is_empty() {
             let _ = writeln!(out, "    (up to date)");
             continue;
@@ -97,7 +99,8 @@ pub fn format_plan(plan: &SyncPlan) -> String {
                 BranchAction::FastForward { branch, from_sha, to_sha } => {
                     let _ = writeln!(
                         out,
-                        "    {} fast-forward  {}..{}",
+                        "    {} {} {}..{}",
+                        style("^").green(),
                         branch,
                         &from_sha[..8.min(from_sha.len())],
                         &to_sha[..8.min(to_sha.len())]
@@ -106,7 +109,8 @@ pub fn format_plan(plan: &SyncPlan) -> String {
                 BranchAction::FastForwardFromUpstream { branch, to_sha } => {
                     let _ = writeln!(
                         out,
-                        "    {} fast-forward from upstream  ..{}",
+                        "    {} {} (from upstream) ..{}",
+                        style("^").green(),
                         branch,
                         &to_sha[..8.min(to_sha.len())]
                     );
@@ -114,19 +118,38 @@ pub fn format_plan(plan: &SyncPlan) -> String {
                 BranchAction::Rebase { branch, onto_sha } => {
                     let _ = writeln!(
                         out,
-                        "    {} rebase onto {}",
+                        "    {} {} rebase onto {}",
+                        style("~").yellow(),
                         branch,
                         &onto_sha[..8.min(onto_sha.len())]
                     );
                 }
                 BranchAction::Push { branch, remote } => {
-                    let _ = writeln!(out, "    {} push -> {}", branch, remote);
+                    let _ = writeln!(
+                        out,
+                        "    {} {} -> {}",
+                        style("->").blue(),
+                        branch,
+                        remote
+                    );
                 }
                 BranchAction::Trash { branch, reason } => {
-                    let _ = writeln!(out, "    {} trash  ({})", branch, reason);
+                    let _ = writeln!(
+                        out,
+                        "    {} {} ({})",
+                        style("trash").yellow(),
+                        branch,
+                        reason
+                    );
                 }
                 BranchAction::Skip { branch, reason } => {
-                    let _ = writeln!(out, "    {} skip   ({})", branch, reason);
+                    let _ = writeln!(
+                        out,
+                        "    {} {} ({})",
+                        style("~").dim(),
+                        branch,
+                        reason
+                    );
                 }
             }
         }
@@ -217,13 +240,16 @@ fn check_worktree_dirty(worktree_path: &Path) -> bool {
 
 /// Fetch from all configured remotes for a repository.
 /// Silently skips remotes that don't exist; propagates other errors.
-pub fn fetch_repo(repo_path: &Path, remotes: &[String]) -> Result<()> {
+pub fn fetch_repo(repo_path: &Path, remotes: &[String], handle: &OperationHandle) -> Result<()> {
     for remote in remotes {
         tracing::debug!("fetching remote '{}'", remote);
-        let output = cmd::run(Command::new("git")
-            .args(["-C", &repo_path.to_string_lossy()])
-            .args(["fetch", "--tags", remote]))
-            .with_context(|| format!("Failed to run git fetch for remote '{}'", remote))?;
+        let output = cmd::run_with_reporter(
+            Command::new("git")
+                .args(["-C", &repo_path.to_string_lossy()])
+                .args(["fetch", "--tags", remote]),
+            handle,
+        )
+        .with_context(|| format!("Failed to run git fetch for remote '{}'", remote))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -350,9 +376,14 @@ pub fn is_ancestor(repo_path: &Path, ancestor: &str, descendant: &str) -> bool {
 // ── Build the repo plan (task 6.7) ─────────────────────────────────────────────
 
 /// Build the complete plan for a single repository.
-pub fn build_repo_plan(repo_path: &Path, repo_name: &str, remotes: &[String]) -> Result<RepoPlan> {
+pub fn build_repo_plan(
+    repo_path: &Path,
+    repo_name: &str,
+    remotes: &[String],
+    handle: &OperationHandle,
+) -> Result<RepoPlan> {
     // 1. Fetch
-    fetch_repo(repo_path, remotes)?;
+    fetch_repo(repo_path, remotes, handle)?;
 
     // 2. Load optional GitHub fork metadata (task 8.1)
     let fork_meta = RepoGithubMeta::load(repo_path)
@@ -679,6 +710,7 @@ pub fn run_sync(
     repospec: Option<&str>,
     dry_run: bool,
     no_confirm: bool,
+    ctx: &AppContext,
 ) -> Result<()> {
     let config = werx.load_config()?;
     let remotes: Vec<String> = config.sync_remotes().to_vec();
@@ -696,29 +728,47 @@ pub fn run_sync(
     };
 
     if repos_to_sync.is_empty() {
-        println!("No repositories to sync.");
+        ctx.reporter.println("No repositories to sync.");
         return Ok(());
     }
 
     tracing::info!("Planning sync for {} repositories", repos_to_sync.len());
-    println!("Planning sync for {} repositories...", repos_to_sync.len());
+    ctx.reporter.println(&format!(
+        "Planning sync for {} repositories...",
+        repos_to_sync.len()
+    ));
 
-    // ── Plan phase (parallelized, task 12.1) ────────────────────────────────
-    let errors: Mutex<Vec<(String, anyhow::Error)>> = Mutex::new(Vec::new());
+    // ── Plan phase (parallelized) ─────────────────────────────────────────────
+    let plan_errors: Mutex<Vec<(String, anyhow::Error)>> = Mutex::new(Vec::new());
     let plans: Mutex<Vec<RepoPlan>> = Mutex::new(Vec::new());
 
-    repos_to_sync.par_iter().for_each(|repo| {
-        let repo_path = werx.repos_dir().join(&repo.dir_name);
-        match build_repo_plan(&repo_path, &repo.dir_name, &remotes) {
-            Ok(plan) => plans.lock().unwrap().push(plan),
-            Err(e) => errors.lock().unwrap().push((repo.dir_name.clone(), e)),
-        }
-    });
+    // Create a spinner handle per repo before going parallel
+    let fetch_handles: Vec<OperationHandle> = repos_to_sync
+        .iter()
+        .map(|r| ctx.reporter.start_operation(&format!("Fetching {}", r.dir_name)))
+        .collect();
+
+    repos_to_sync
+        .par_iter()
+        .zip(fetch_handles.par_iter())
+        .for_each(|(repo, handle)| {
+            let repo_path = werx.repos_dir().join(&repo.dir_name);
+            match build_repo_plan(&repo_path, &repo.dir_name, &remotes, handle) {
+                Ok(plan) => {
+                    handle.finish_ok(&repo.dir_name);
+                    plans.lock().unwrap().push(plan);
+                }
+                Err(e) => {
+                    handle.finish_err(&format!("{}: {}", repo.dir_name, e));
+                    plan_errors.lock().unwrap().push((repo.dir_name.clone(), e));
+                }
+            }
+        });
 
     let mut plans = plans.into_inner().unwrap();
     // Sort for stable output
     plans.sort_by(|a, b| a.repo.cmp(&b.repo));
-    let plan_errors = errors.into_inner().unwrap();
+    let plan_errors = plan_errors.into_inner().unwrap();
 
     // Report planning errors
     for (repo, err) in &plan_errors {
@@ -728,19 +778,21 @@ pub fn run_sync(
     let sync_plan = SyncPlan { repos: plans };
 
     // ── Present plan ─────────────────────────────────────────────────────────
-    println!();
-    println!("Sync Plan:");
-    println!();
-    print!("{}", format_plan(&sync_plan));
+    ctx.reporter.println("");
+    ctx.reporter.println(&format!("{}:", style("Sync Plan").bold()));
+    ctx.reporter.println("");
+    ctx.reporter.println(&format_plan(&sync_plan));
 
     // ── Dry-run early exit ────────────────────────────────────────────────────
     if dry_run {
-        println!("(dry-run mode — no changes applied)");
+        ctx.reporter
+            .println("(dry-run mode — no changes applied)");
         return Ok(());
     }
 
     if !sync_plan.has_mutations() {
-        println!("Nothing to do — all repositories are up to date.");
+        ctx.reporter
+            .println("Nothing to do — all repositories are up to date.");
         return Ok(());
     }
 
@@ -755,58 +807,69 @@ pub fn run_sync(
             .interact()?;
 
         if !confirmed {
-            println!("Sync cancelled.");
+            ctx.reporter.println("Sync cancelled.");
             return Ok(());
         }
     }
 
-    // ── Execute phase (parallelized, task 12.2) ───────────────────────────────
+    // ── Execute phase (parallelized) ──────────────────────────────────────────
     let today = chrono_today();
-    let display = SyncProgressDisplay::new(is_tty);
 
     let exec_errors: Mutex<Vec<(String, anyhow::Error)>> = Mutex::new(Vec::new());
     let all_outcomes: Mutex<Vec<(String, String, ActionOutcome)>> = Mutex::new(Vec::new());
 
-    sync_plan.repos.par_iter().for_each(|repo_plan| {
-        let repo_path = werx.repos_dir().join(&repo_plan.repo);
+    // Create a spinner handle per repo before going parallel
+    let exec_handles: Vec<OperationHandle> = sync_plan
+        .repos
+        .iter()
+        .map(|r| ctx.reporter.start_operation(&format!("Syncing {}", r.repo)))
+        .collect();
 
-        let mut repo_outcomes: Vec<(String, String, ActionOutcome)> = Vec::new();
+    sync_plan
+        .repos
+        .par_iter()
+        .zip(exec_handles.par_iter())
+        .for_each(|(repo_plan, handle)| {
+            let repo_path = werx.repos_dir().join(&repo_plan.repo);
 
-        for action in &repo_plan.actions {
-            let outcome = execute_action(&repo_path, action, &today);
-            let (branch_name, result) = match action {
-                BranchAction::FastForward { branch, .. } => (branch.clone(), outcome),
-                BranchAction::FastForwardFromUpstream { branch, .. } => (branch.clone(), outcome),
-                BranchAction::Rebase { branch, .. } => (branch.clone(), outcome),
-                BranchAction::Push { branch, .. } => (branch.clone(), outcome),
-                BranchAction::Trash { branch, .. } => (branch.clone(), outcome),
-                BranchAction::Skip { branch, reason } => {
-                    (branch.clone(), Ok(ActionOutcome::Skipped(reason.clone())))
-                }
-            };
+            let mut repo_outcomes: Vec<(String, String, ActionOutcome)> = Vec::new();
 
-            match result {
-                Ok(out) => repo_outcomes.push((repo_plan.repo.clone(), branch_name, out)),
-                Err(e) => {
-                    repo_outcomes.push((
-                        repo_plan.repo.clone(),
-                        branch_name.clone(),
-                        ActionOutcome::Skipped(format!("error: {}", e)),
-                    ));
+            for action in &repo_plan.actions {
+                let outcome = execute_action(&repo_path, action, &today);
+                let (branch_name, result) = match action {
+                    BranchAction::FastForward { branch, .. } => (branch.clone(), outcome),
+                    BranchAction::FastForwardFromUpstream { branch, .. } => {
+                        (branch.clone(), outcome)
+                    }
+                    BranchAction::Rebase { branch, .. } => (branch.clone(), outcome),
+                    BranchAction::Push { branch, .. } => (branch.clone(), outcome),
+                    BranchAction::Trash { branch, .. } => (branch.clone(), outcome),
+                    BranchAction::Skip { branch, reason } => {
+                        (branch.clone(), Ok(ActionOutcome::Skipped(reason.clone())))
+                    }
+                };
+
+                match result {
+                    Ok(out) => repo_outcomes.push((repo_plan.repo.clone(), branch_name, out)),
+                    Err(e) => {
+                        repo_outcomes.push((
+                            repo_plan.repo.clone(),
+                            branch_name.clone(),
+                            ActionOutcome::Skipped(format!("error: {}", e)),
+                        ));
+                    }
                 }
             }
-        }
 
-        display.repo_done(&repo_plan.repo);
-        all_outcomes.lock().unwrap().extend(repo_outcomes);
-    });
+            handle.finish_ok(&repo_plan.repo);
+            all_outcomes.lock().unwrap().extend(repo_outcomes);
+        });
 
     let outcomes = all_outcomes.into_inner().unwrap();
     let exec_errors = exec_errors.into_inner().unwrap();
 
     // ── Final summary ─────────────────────────────────────────────────────────
-    display.finish();
-    print_summary(&outcomes, &exec_errors);
+    print_summary(&outcomes, &exec_errors, &ctx.reporter);
 
     Ok(())
 }
@@ -868,10 +931,11 @@ fn execute_action(repo_path: &Path, action: &BranchAction, date: &str) -> Result
 fn print_summary(
     outcomes: &[(String, String, ActionOutcome)],
     errors: &[(String, anyhow::Error)],
+    reporter: &crate::reporter::Reporter,
 ) {
-    println!();
-    println!("Sync complete.");
-    println!();
+    reporter.println("");
+    reporter.println(&format!("{}", style("Sync complete.").bold()));
+    reporter.println("");
 
     let done: Vec<_> = outcomes
         .iter()
@@ -884,29 +948,47 @@ fn print_summary(
         .collect();
 
     if !done.is_empty() {
-        println!("Actions taken:");
+        reporter.println("Actions taken:");
         for (repo, _, outcome) in &done {
             if let ActionOutcome::Done(msg) = outcome {
-                println!("  [{}] {}", repo, msg);
+                reporter.println(&format!(
+                    "  {} [{}] {}",
+                    style("✓").green(),
+                    style(repo).cyan(),
+                    msg
+                ));
             }
         }
-        println!();
+        reporter.println("");
     }
 
     if !skipped.is_empty() || !errors.is_empty() {
-        println!("Needs attention:");
+        reporter.println(&format!("{}:", style("Needs attention").yellow().bold()));
         for (repo, _, outcome) in &skipped {
             if let ActionOutcome::Skipped(msg) = outcome {
-                println!("  [{}] {}", repo, msg);
+                reporter.println(&format!(
+                    "  {} [{}] {}",
+                    style("!").yellow(),
+                    style(repo).cyan(),
+                    msg
+                ));
             }
         }
         for (repo, err) in errors {
-            println!("  [{}] error: {}", repo, err);
+            reporter.println(&format!(
+                "  {} [{}] error: {}",
+                style("✗").red(),
+                style(repo).cyan(),
+                err
+            ));
         }
-        println!();
+        reporter.println("");
     } else {
-        println!("No items need attention.");
-        println!();
+        reporter.println(&format!(
+            "  {} No items need attention.",
+            style("✓").green()
+        ));
+        reporter.println("");
     }
 }
 
@@ -947,28 +1029,6 @@ fn chrono_today() -> String {
 
 fn is_leap_year(y: u32) -> bool {
     (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
-}
-
-// ── TUI progress display (tasks 13.x) ─────────────────────────────────────────
-
-pub struct SyncProgressDisplay {
-    is_tty: bool,
-}
-
-impl SyncProgressDisplay {
-    pub fn new(is_tty: bool) -> Self {
-        Self { is_tty }
-    }
-
-    pub fn repo_done(&self, repo: &str) {
-        if !self.is_tty {
-            println!("  {} done", repo);
-        }
-    }
-
-    pub fn finish(&self) {
-        // In TTY mode the summary replaces the display; in non-TTY nothing extra needed
-    }
 }
 
 // ── unit tests ────────────────────────────────────────────────────────────────
@@ -1232,7 +1292,8 @@ mod tests {
         let output = format_plan(&plan);
         assert!(output.contains("my-repo"));
         assert!(output.contains("main"));
-        assert!(output.contains("fast-forward"));
+        assert!(output.contains("aaaa1111"));
+        assert!(output.contains("bbbb2222"));
         assert!(output.contains("feature"));
         assert!(output.contains("active worktree"));
     }

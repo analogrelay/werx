@@ -7,6 +7,7 @@ pub mod init;
 pub mod path;
 pub mod repo_meta;
 pub mod repo_spec;
+pub mod reporter;
 pub mod repos;
 pub mod shell;
 pub mod sync;
@@ -17,6 +18,22 @@ pub mod workspace;
 use std::path::PathBuf;
 
 pub use config::{AgentConfig, Config, GithubConfig, Protocol, SyncConfig};
+pub use reporter::Reporter;
+
+/// Application-wide context threaded through commands.
+pub struct AppContext {
+    pub verbose: bool,
+    pub reporter: reporter::Reporter,
+}
+
+impl AppContext {
+    pub fn new(verbose: bool) -> Self {
+        Self {
+            verbose,
+            reporter: reporter::Reporter::new(verbose),
+        }
+    }
+}
 pub use repo_meta::RepoGithubMeta;
 pub use sync::run_sync;
 pub use directive::emit_change_directory;
