@@ -711,17 +711,93 @@ fn cmd_workspace_create_from_issue_pr(
         }
     }
 
-    // Task 7.4: Try issue
-    let issue = github::fetch_issue(owner, repo_name, number).map_err(|e| {
-        // Task 7.8: error when neither PR nor issue
-        anyhow::anyhow!(
-            "#{} is neither a PR nor an issue in {}/{}: {}",
-            number,
-            owner,
-            repo_name,
-            e
-        )
-    })?;
+    // Try issue in fork repo and, if this is a fork, also in the upstream repo.
+    let fork_issue = github::fetch_issue(owner, repo_name, number).ok();
+    let upstream_issue = if repo_meta.is_fork {
+        if let (Some(up_owner), Some(up_repo)) =
+            (repo_meta.upstream_owner.as_deref(), repo_meta.upstream_repo.as_deref())
+        {
+            github::fetch_issue(up_owner, up_repo, number).ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Resolve which issue (and repo context) to use.
+    #[derive(Clone)]
+    struct IssueContext {
+        issue: github::GhIssue,
+        /// Display label shown to the user when prompting.
+        label: String,
+    }
+
+    let issue_ctx: IssueContext = match (fork_issue, upstream_issue) {
+        (Some(fi), Some(ui)) => {
+            // Both repos have this issue — prompt if interactive, else error.
+            if std::io::stdin().is_terminal() {
+                let items = vec![
+                    format!("Fork ({}/{}): {}", owner, repo_name, fi.title),
+                    format!(
+                        "Upstream ({}/{}): {}",
+                        repo_meta.upstream_owner.as_deref().unwrap_or("?"),
+                        repo_meta.upstream_repo.as_deref().unwrap_or("?"),
+                        ui.title
+                    ),
+                ];
+                println!();
+                println!("Issue #{} exists in both the fork and upstream repo. Which one?", number);
+                let idx = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                    .items(&items)
+                    .default(0)
+                    .interact()
+                    .map_err(|e| anyhow::anyhow!("Selection cancelled: {}", e))?;
+                if idx == 0 {
+                    IssueContext { issue: fi, label: format!("{}/{}", owner, repo_name) }
+                } else {
+                    IssueContext {
+                        issue: ui,
+                        label: format!(
+                            "{}/{}",
+                            repo_meta.upstream_owner.as_deref().unwrap_or("?"),
+                            repo_meta.upstream_repo.as_deref().unwrap_or("?")
+                        ),
+                    }
+                }
+            } else {
+                return Err(anyhow::anyhow!(
+                    "#{} exists in both the fork ({}/{}) and upstream ({}/{}). \
+                     Cannot auto-select in non-interactive mode.",
+                    number,
+                    owner,
+                    repo_name,
+                    repo_meta.upstream_owner.as_deref().unwrap_or("?"),
+                    repo_meta.upstream_repo.as_deref().unwrap_or("?")
+                ));
+            }
+        }
+        (Some(fi), None) => IssueContext { issue: fi, label: format!("{}/{}", owner, repo_name) },
+        (None, Some(ui)) => IssueContext {
+            issue: ui,
+            label: format!(
+                "{}/{}",
+                repo_meta.upstream_owner.as_deref().unwrap_or("?"),
+                repo_meta.upstream_repo.as_deref().unwrap_or("?")
+            ),
+        },
+        (None, None) => {
+            return Err(anyhow::anyhow!(
+                "#{} is neither a PR nor an issue in {}/{} (or its upstream)",
+                number,
+                owner,
+                repo_name,
+            ));
+        }
+    };
+
+    let issue = issue_ctx.issue;
+    let issue_source = issue_ctx.label;
 
     // Task 7.5 / 7.6: Issue flow
     let mut config = werx.load_config()?;
@@ -775,7 +851,7 @@ fn cmd_workspace_create_from_issue_pr(
 
     println!();
     println!("Workspace created successfully!");
-    println!("  Issue:      #{} — {}", number, issue.title);
+    println!("  Issue:      #{} — {} ({})", number, issue.title, issue_source);
     println!("  Branch:     {}", branch);
     println!("  Workspace:  {}/{}", repo_info.dir_name, workspace_name);
     println!("  Path:       {}", workspace_path.display());

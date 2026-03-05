@@ -339,11 +339,10 @@ fn detect_and_save_fork_meta(spec: &RepoSpec, repo_dir: &Path, protocol: Option<
     let (is_fork, upstream_owner, upstream_repo, upstream_default_branch, upstream_url) =
         if gh_meta.is_fork {
             if let Some(parent) = gh_meta.parent {
-                let mut parts = parent.name_with_owner.splitn(2, '/');
-                let up_owner = parts.next().unwrap_or("").to_string();
-                let up_repo = parts.next().unwrap_or("").to_string();
+                let up_owner = parent.owner.login.clone();
+                let up_repo = parent.name.clone();
                 if up_owner.is_empty() || up_repo.is_empty() {
-                    eprintln!("Warning: could not parse upstream repo from '{}'", parent.name_with_owner);
+                    eprintln!("Warning: could not parse upstream repo from '{}'", parent.name_with_owner());
                     return;
                 }
                 let up_branch = parent.default_branch_ref.as_ref().map(|b| b.name.clone());

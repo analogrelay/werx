@@ -19,6 +19,8 @@
 - Added GitHub fork tracking: on `werx add`, detect if the cloned repo is a GitHub fork via the `gh` CLI, persist fork metadata to `werx-repo.toml` beside the bare clone, and automatically configure an `upstream` remote pointing to the parent repo (PR TBD)
 - Added upstream-aware sync: `werx sync` now fast-forwards fork branches from `upstream/<branch>` before pushing to `origin`; branches that have diverged from upstream are marked as skipped with a "needs manual rebase" note (PR TBD)
 - Added `werx wt create <repo> #<N>` to create worktrees directly from GitHub issue or PR numbers; PR references check out the PR HEAD branch, issue references generate a branch name via the configured naming pattern and optionally invoke a coding agent for the slug (PR TBD)
+- `werx wt create <fork-repo> #<N>` now searches both the fork and its upstream repo for issues; if found in both, the user is prompted to choose; if found only in upstream, it is used automatically (PR TBD)
+- Fixed `gh repo view` parsing: `parent` JSON now uses `name`/`owner.login` fields instead of the missing `nameWithOwner` field (PR TBD)
 - Added branch naming service (`src/branch_naming.rs`): `username/[N-]topic` pattern, GitHub username auto-detection via `gh api user` with caching in `werx.toml`, and AI-assisted slug generation via Claude or GitHub Copilot CLI (PR TBD)
 
 ### Breaking Changes

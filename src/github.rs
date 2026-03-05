@@ -26,11 +26,21 @@ pub struct GhRepoView {
 
 #[derive(Debug, Deserialize)]
 pub struct GhParentRepo {
-    /// e.g. "upstream-owner/repo"
-    #[serde(rename = "nameWithOwner")]
-    pub name_with_owner: String,
+    pub name: String,
+    pub owner: GhRepoOwner,
     #[serde(rename = "defaultBranchRef")]
     pub default_branch_ref: Option<GhBranchRef>,
+}
+
+impl GhParentRepo {
+    pub fn name_with_owner(&self) -> String {
+        format!("{}/{}", self.owner.login, self.name)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GhRepoOwner {
+    pub login: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,7 +48,7 @@ pub struct GhBranchRef {
     pub name: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct GhIssue {
     pub title: String,
     pub body: String,
