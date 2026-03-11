@@ -3,6 +3,15 @@
 ## 0.1.0 (Unreleased)
 
 - Initial Release
+
+### Features Added
+
+- Added `werx config list/get/set/delete` commands for dotted-path config read/write (PR TBD)
+- Added `werx status` shorthand command that dispatches to `werx workspace status` (PR TBD)
+- Redesigned `werx workspace status` to display repos as top-level with fork annotations and per-workspace branch status (PR TBD)
+- Fixed branch naming to strip issue-number prefix from AI-generated slugs, preventing duplication like `user/1234-1234-fix-bug` (PR TBD)
+- Added `werx go #N` / `werx go N` to navigate directly to a workspace by issue or PR number (PR TBD)
+- Added `werx on [REPO] #N` command to navigate to or create a workspace for a GitHub issue or PR in one step (PR TBD)
 - Added `--build` and `--release` modes to `script/check` for flexible CI validation
 
 ### Features Added

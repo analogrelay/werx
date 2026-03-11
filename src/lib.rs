@@ -17,7 +17,7 @@ pub mod workspace;
 
 use std::path::PathBuf;
 
-pub use config::{AgentConfig, Config, GithubConfig, Protocol, SyncConfig};
+pub use config::{AgentConfig, Config, GithubConfig, Protocol, SyncConfig, config_get_value, config_set_value, config_delete_value};
 pub use reporter::Reporter;
 
 /// Application-wide context threaded through commands.

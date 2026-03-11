@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -6,7 +6,8 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 use werx::{
     AppContext, RepoGithubMeta,
-    add_repo, branch_naming, check_workspace_status, cmd_shell_init, confirm_workspace_removal,
+    add_repo, branch_naming, check_workspace_status, cmd_shell_init, config_delete_value,
+    config_get_value, config_set_value, confirm_workspace_removal,
     create_repo, create_worktree, detect_current_workspace, emit_change_directory,
     find_repository, get_workspace_status_details, github, initialize_werx, list_repos,
     list_workspaces, prompt_workspace_name, remove_repo, remove_workspace, resolve_werx_path,
@@ -109,6 +110,41 @@ enum Commands {
         no_confirm: bool,
     },
 
+    /// Show workspace status (shorthand for 'werx workspace status')
+    #[command(about = "Show workspace status across the Werx")]
+    Status {
+        /// Filter to a specific repository
+        #[arg(value_name = "REPO")]
+        repo: Option<String>,
+
+        /// Output format (text or json)
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        format: String,
+    },
+
+    /// Read or write configuration values
+    #[command(about = "Read or write configuration values", subcommand)]
+    Config(ConfigCommands),
+
+    /// Navigate to or create a workspace for a GitHub issue or PR
+    #[command(
+        about = "Navigate to or create a workspace for a GitHub issue or PR",
+        long_about = "Navigate to an existing workspace for the given issue/PR, or create one.\n\n\
+                      Examples:\n  \
+                      werx on #1234          # Go to (or create) workspace for issue/PR 1234\n  \
+                      werx on my-repo #1234  # Same, scoped to a specific repository\n\n\
+                      Note: Requires shell integration. Run 'werx shell init --help' for setup."
+    )]
+    On {
+        /// Optional repository name, or '#N' issue/PR number
+        #[arg(value_name = "REPO_OR_NUMBER")]
+        repo_or_number: Option<String>,
+
+        /// Issue or PR number (e.g. '#1234' or '1234')
+        #[arg(value_name = "NUMBER")]
+        number: Option<String>,
+    },
+
     /// Shell integration commands
     #[command(
         about = "Shell integration commands",
@@ -136,6 +172,41 @@ enum ShellCommands {
         /// Shell type (bash or zsh)
         #[arg(value_name = "SHELL")]
         shell: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigCommands {
+    /// Print the entire config as TOML
+    #[command(about = "Print the entire config as TOML")]
+    List,
+
+    /// Get a config value at a dotted path
+    #[command(about = "Get a config value at a dotted path")]
+    Get {
+        /// Dotted key path (e.g. github.username)
+        #[arg(value_name = "KEY")]
+        key: String,
+    },
+
+    /// Set a config value at a dotted path
+    #[command(about = "Set a config value at a dotted path")]
+    Set {
+        /// Dotted key path (e.g. github.username)
+        #[arg(value_name = "KEY")]
+        key: String,
+
+        /// Value to set
+        #[arg(value_name = "VALUE")]
+        value: String,
+    },
+
+    /// Delete a config key at a dotted path
+    #[command(about = "Delete a config key at a dotted path")]
+    Delete {
+        /// Dotted key path (e.g. github.username)
+        #[arg(value_name = "KEY")]
+        key: String,
     },
 }
 
@@ -315,6 +386,18 @@ fn main() -> Result<()> {
         Commands::Go { query } => {
             let _span = tracing::info_span!("go").entered();
             cmd_go(query)?;
+        }
+        Commands::Status { repo, format } => {
+            let _span = tracing::info_span!("status").entered();
+            cmd_workspace_status(repo, format)?;
+        }
+        Commands::Config(subcmd) => {
+            let _span = tracing::info_span!("config").entered();
+            cmd_config(subcmd)?;
+        }
+        Commands::On { repo_or_number, number } => {
+            let _span = tracing::info_span!("on").entered();
+            cmd_on(repo_or_number, number)?;
         }
         Commands::Shell(subcmd) => match subcmd {
             ShellCommands::Init { shell } => {
@@ -648,218 +731,11 @@ fn cmd_workspace_create_from_issue_pr(
     number: u64,
     workspace_name_override: Option<String>,
 ) -> Result<()> {
-    // Task 7.9: require gh in PATH
-    if !github::is_gh_available() {
-        return Err(anyhow::anyhow!(
-            "The `gh` CLI is required for GitHub issue/PR resolution but was not found in PATH.\n\
-             Install it from https://cli.github.com/"
-        ));
-    }
-
-    // Task 7.2: require werx-repo.toml for the target repo
-    let repo_path = werx.repos_dir().join(&repo_info.dir_name);
-    let repo_meta = RepoGithubMeta::load(&repo_path)?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "No GitHub metadata found for repository '{}'.\n\
-                 Run `werx repo add` again (or re-clone) to populate fork metadata.\n\
-                 Alternatively, add the repository via `werx add` to trigger detection.",
-                repo_info.dir_name
-            )
-        })?;
-
-    let owner = &repo_meta.owner;
-    let repo_name = &repo_meta.repo;
-    let default_branch = &repo_meta.default_branch;
-
-    // Task 7.3: Try PR first
-    match github::fetch_pr(owner, repo_name, number) {
-        Ok(pr) => {
-            let branch = &pr.head_ref_name;
-
-            // Task 7.7: check for existing worktree
-            let worktrees = list_worktree_branches(&repo_path)?;
-            if let Some((_, path)) = worktrees.iter().find(|(b, _)| b == branch) {
-                println!();
-                println!("Workspace already exists for branch '{}':", branch);
-                println!("  {}", path.display());
-                return Ok(());
-            }
-
-            let workspace_name = workspace_name_override
-                .unwrap_or_else(|| branch.replace('/', "-"));
-
-            println!();
-            println!("Creating workspace for PR #{} (branch: {})...", number, branch);
-
-            let workspace_path = create_worktree(werx, &repo_info, &workspace_name, branch)?;
-
-            println!();
-            println!("Workspace created successfully!");
-            println!("  PR:         #{}", number);
-            println!("  Branch:     {}", branch);
-            println!("  Workspace:  {}/{}", repo_info.dir_name, workspace_name);
-            println!("  Path:       {}", workspace_path.display());
-            println!();
-            println!("Next steps:");
-            println!("  cd {}", workspace_path.display());
-            println!();
-            return Ok(());
-        }
-        Err(e) => {
-            tracing::debug!("#{} is not a PR ({}), trying as issue", number, e);
-        }
-    }
-
-    // Try issue in fork repo and, if this is a fork, also in the upstream repo.
-    let fork_issue = github::fetch_issue(owner, repo_name, number).ok();
-    let upstream_issue = if repo_meta.is_fork {
-        if let (Some(up_owner), Some(up_repo)) =
-            (repo_meta.upstream_owner.as_deref(), repo_meta.upstream_repo.as_deref())
-        {
-            github::fetch_issue(up_owner, up_repo, number).ok()
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    // Resolve which issue (and repo context) to use.
-    #[derive(Clone)]
-    struct IssueContext {
-        issue: github::GhIssue,
-        /// Display label shown to the user when prompting.
-        label: String,
-    }
-
-    let issue_ctx: IssueContext = match (fork_issue, upstream_issue) {
-        (Some(fi), Some(ui)) => {
-            // Both repos have this issue — prompt if interactive, else error.
-            if std::io::stdin().is_terminal() {
-                let items = vec![
-                    format!("Fork ({}/{}): {}", owner, repo_name, fi.title),
-                    format!(
-                        "Upstream ({}/{}): {}",
-                        repo_meta.upstream_owner.as_deref().unwrap_or("?"),
-                        repo_meta.upstream_repo.as_deref().unwrap_or("?"),
-                        ui.title
-                    ),
-                ];
-                println!();
-                println!("Issue #{} exists in both the fork and upstream repo. Which one?", number);
-                let idx = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
-                    .items(&items)
-                    .default(0)
-                    .interact()
-                    .map_err(|e| anyhow::anyhow!("Selection cancelled: {}", e))?;
-                if idx == 0 {
-                    IssueContext { issue: fi, label: format!("{}/{}", owner, repo_name) }
-                } else {
-                    IssueContext {
-                        issue: ui,
-                        label: format!(
-                            "{}/{}",
-                            repo_meta.upstream_owner.as_deref().unwrap_or("?"),
-                            repo_meta.upstream_repo.as_deref().unwrap_or("?")
-                        ),
-                    }
-                }
-            } else {
-                return Err(anyhow::anyhow!(
-                    "#{} exists in both the fork ({}/{}) and upstream ({}/{}). \
-                     Cannot auto-select in non-interactive mode.",
-                    number,
-                    owner,
-                    repo_name,
-                    repo_meta.upstream_owner.as_deref().unwrap_or("?"),
-                    repo_meta.upstream_repo.as_deref().unwrap_or("?")
-                ));
-            }
-        }
-        (Some(fi), None) => IssueContext { issue: fi, label: format!("{}/{}", owner, repo_name) },
-        (None, Some(ui)) => IssueContext {
-            issue: ui,
-            label: format!(
-                "{}/{}",
-                repo_meta.upstream_owner.as_deref().unwrap_or("?"),
-                repo_meta.upstream_repo.as_deref().unwrap_or("?")
-            ),
-        },
-        (None, None) => {
-            return Err(anyhow::anyhow!(
-                "#{} is neither a PR nor an issue in {}/{} (or its upstream)",
-                number,
-                owner,
-                repo_name,
-            ));
-        }
-    };
-
-    let issue = issue_ctx.issue;
-    let issue_source = issue_ctx.label;
-
-    // Task 7.5 / 7.6: Issue flow
-    let mut config = werx.load_config()?;
-
-    let username = branch_naming::resolve_username(werx, &mut config)?;
-    let default_slug = branch_naming::generate_slug(werx, &config, &issue.title, &issue.body);
-
-    let topic_slug = if std::io::stdin().is_terminal() {
-        // Interactive: prompt with pre-filled default (task 7.5)
-        let slug: String =
-            dialoguer::Input::with_theme(&dialoguer::theme::ColorfulTheme::default())
-                .with_prompt("Branch slug")
-                .default(default_slug)
-                .interact_text()
-                .map_err(|e| anyhow::anyhow!("Failed to prompt for branch slug: {}", e))?;
-        slug.trim().to_string()
-    } else {
-        // Non-interactive: use generated slug directly (task 7.6)
-        default_slug
-    };
-
-    let branch = branch_naming::make_branch_name(&username, Some(number), &topic_slug);
-
-    // Task 7.7: check for existing worktree
-    let worktrees = list_worktree_branches(&repo_path)?;
-    if let Some((_, path)) = worktrees.iter().find(|(b, _)| b == &branch) {
-        println!();
-        println!("Workspace already exists for branch '{}':", branch);
-        println!("  {}", path.display());
-        return Ok(());
-    }
-
-    // Ensure branch exists locally (create from default branch if absent)
-    create_branch_if_absent(&repo_path, &branch, default_branch)?;
-
-    let workspace_name = workspace_name_override.unwrap_or_else(|| {
-        // Use the slug part of the branch name (after username/) for the workspace name
-        branch
-            .find('/')
-            .map(|i| branch[i + 1..].to_string())
-            .unwrap_or_else(|| branch.clone())
-    });
-
-    println!();
-    println!(
-        "Creating workspace for issue #{} (branch: {})...",
-        number, branch
-    );
-
-    let workspace_path = create_worktree(werx, &repo_info, &workspace_name, &branch)?;
-
-    println!();
-    println!("Workspace created successfully!");
-    println!("  Issue:      #{} — {} ({})", number, issue.title, issue_source);
-    println!("  Branch:     {}", branch);
-    println!("  Workspace:  {}/{}", repo_info.dir_name, workspace_name);
-    println!("  Path:       {}", workspace_path.display());
+    let workspace_path = create_workspace_for_issue_pr(werx, repo_info, number, workspace_name_override)?;
     println!();
     println!("Next steps:");
     println!("  cd {}", workspace_path.display());
     println!();
-
     Ok(())
 }
 
@@ -984,6 +860,28 @@ fn cmd_go(query: Option<String>) -> Result<()> {
     // Find the Werx
     let werx = find_werx()?;
 
+    // If the query looks like an issue/PR number, do a branch-pattern lookup first.
+    if let Some(ref q) = query {
+        if let Some(number) = parse_issue_number(q) {
+            let matches = find_workspaces_for_number(&werx, number)?;
+            if !matches.is_empty() {
+                let workspace = if matches.len() == 1 {
+                    matches.into_iter().next().unwrap()
+                } else {
+                    match select_workspace_with_query(matches, query.clone())? {
+                        Some(ws) => ws,
+                        None => return Ok(()),
+                    }
+                };
+                if let Err(e) = emit_change_directory(&workspace.path) {
+                    tracing::warn!("emit_change_directory failed: {}", e);
+                }
+                return Ok(());
+            }
+            // No branch match — fall through to regular fuzzy search
+        }
+    }
+
     // List all workspaces
     let workspaces = list_workspaces(&werx)?;
 
@@ -1003,7 +901,6 @@ fn cmd_go(query: Option<String>) -> Result<()> {
         }
         None => {
             // User cancelled or no selection
-            // Just exit without error
         }
     }
 
@@ -1028,200 +925,165 @@ struct StatusSummary {
 }
 
 fn cmd_workspace_status(repo: Option<String>, format: String) -> Result<()> {
-    // Find the Werx
     let werx = find_werx()?;
 
-    // List workspaces (optionally filtered by repository)
-    let mut workspaces = list_workspaces(&werx)?;
-
-    // Filter by repository if specified
-    if let Some(ref repo_spec) = repo {
+    // Build the set of repos to display (filtered or all)
+    let all_repos = list_repos(&werx)?;
+    let repos_to_show: Vec<_> = if let Some(ref repo_spec) = repo {
         let repo_info = find_repository(&werx, repo_spec)?;
-        workspaces.retain(|w| w.repository == repo_info.dir_name);
-    }
+        all_repos.into_iter().filter(|r| r.dir_name == repo_info.dir_name).collect()
+    } else {
+        all_repos
+    };
 
-    if workspaces.is_empty() {
+    if repos_to_show.is_empty() {
         if let Some(ref repo_spec) = repo {
-            println!("No workspaces found for repository '{}'.", repo_spec);
-            println!();
-            println!(
-                "Run 'werx workspace create {}' to create a workspace.",
-                repo_spec
-            );
+            println!("No repository found matching '{}'.", repo_spec);
         } else {
-            println!("No workspaces found.");
-            println!();
-            println!("Run 'werx workspace create' to create a workspace.");
+            println!("No repositories found. Run 'werx add <repo>' to add one.");
         }
         return Ok(());
     }
 
-    // Gather status for all workspaces
+    // Gather all workspace statuses grouped by repository
+    let all_workspaces = list_workspaces(&werx)?;
     let mut workspace_statuses: Vec<WorkspaceWithStatus> = Vec::new();
-    for workspace in workspaces {
-        let details = get_workspace_status_details(&workspace, &werx)?;
-        workspace_statuses.push(WorkspaceWithStatus { workspace, details });
+    for workspace in all_workspaces {
+        if repos_to_show.iter().any(|r| r.dir_name == workspace.repository) {
+            let details = get_workspace_status_details(&workspace, &werx)?;
+            workspace_statuses.push(WorkspaceWithStatus { workspace, details });
+        }
     }
 
     // Calculate summary
     let summary = StatusSummary {
         total: workspace_statuses.len(),
-        uncommitted: workspace_statuses
-            .iter()
-            .filter(|w| w.details.uncommitted_changes)
-            .count(),
-        unpushed: workspace_statuses
-            .iter()
-            .filter(|w| w.details.unpushed_branch)
-            .count(),
-        merged: workspace_statuses
-            .iter()
-            .filter(|w| w.details.merged_branch)
-            .count(),
+        uncommitted: workspace_statuses.iter().filter(|w| w.details.uncommitted_changes).count(),
+        unpushed: workspace_statuses.iter().filter(|w| w.details.unpushed_branch).count(),
+        merged: workspace_statuses.iter().filter(|w| w.details.merged_branch).count(),
         clean: workspace_statuses
             .iter()
-            .filter(|w| {
-                !w.details.uncommitted_changes
-                    && !w.details.unpushed_branch
-                    && !w.details.merged_branch
-            })
+            .filter(|w| !w.details.uncommitted_changes && !w.details.unpushed_branch && !w.details.merged_branch)
             .count(),
     };
 
     match format.as_str() {
         "json" => {
-            print_status_json(&workspace_statuses, &summary)?;
+            print_status_json(&workspace_statuses, &summary, &repos_to_show, &werx)?;
         }
         _ => {
-            print_status_text(&workspace_statuses, &summary, repo.as_deref())?;
+            print_status_text(&workspace_statuses, &summary, &repos_to_show, &werx)?;
         }
     }
 
     Ok(())
 }
 
+fn workspace_status_label(ws: &WorkspaceWithStatus) -> String {
+    if ws.details.uncommitted_changes {
+        let change = if let Some(ref d) = ws.details.status_details {
+            let mut parts = Vec::new();
+            if !d.modified_files.is_empty() { parts.push(format!("M:{}", d.modified_files.len())); }
+            if !d.untracked_files.is_empty() { parts.push(format!("?:{}", d.untracked_files.len())); }
+            if parts.is_empty() { String::new() } else { format!(" ({})", parts.join(" ")) }
+        } else {
+            String::new()
+        };
+        format!("uncommitted{}", change)
+    } else if ws.details.unpushed_branch {
+        "unpushed".to_string()
+    } else if ws.details.merged_branch {
+        "merged".to_string()
+    } else {
+        "clean".to_string()
+    }
+}
+
 fn print_status_text(
     statuses: &[WorkspaceWithStatus],
     summary: &StatusSummary,
-    repo_filter: Option<&str>,
+    repos: &[werx::RepoInfo],
+    werx: &Werx,
 ) -> Result<()> {
     println!();
-    if let Some(repo) = repo_filter {
-        println!("Workspace Status for '{}'", repo);
-    } else {
-        println!("Workspace Status for Werx");
+    println!("Repositories ({}):", repos.len());
+
+    for repo in repos {
+        // Load fork info if available
+        let repo_path = werx.repos_dir().join(&repo.dir_name);
+        let fork_annotation = match RepoGithubMeta::load(&repo_path) {
+            Ok(Some(meta)) if meta.is_fork => {
+                if let (Some(up_owner), Some(up_repo)) =
+                    (meta.upstream_owner.as_deref(), meta.upstream_repo.as_deref())
+                {
+                    format!("  [fork of {}/{}]", up_owner, up_repo)
+                } else {
+                    "  [fork]".to_string()
+                }
+            }
+            _ => String::new(),
+        };
+
+        println!();
+        println!("  {}{}", repo.dir_name, fork_annotation);
+
+        let repo_statuses: Vec<_> = statuses
+            .iter()
+            .filter(|ws| ws.workspace.repository == repo.dir_name)
+            .collect();
+
+        if repo_statuses.is_empty() {
+            println!("    (no workspaces)");
+        } else {
+            for ws in &repo_statuses {
+                let branch = ws.details.branch_name.as_deref()
+                    .unwrap_or(ws.workspace.name.as_str());
+                let label = workspace_status_label(ws);
+                println!("    {:<40} {}", branch, label);
+            }
+        }
     }
+
     println!();
+    let ws_count = summary.total;
+    let mut parts = Vec::new();
+    if summary.uncommitted > 0 { parts.push(format!("{} uncommitted", summary.uncommitted)); }
+    if summary.unpushed > 0 { parts.push(format!("{} unpushed", summary.unpushed)); }
+    if summary.merged > 0 { parts.push(format!("{} merged", summary.merged)); }
+    if summary.clean > 0 { parts.push(format!("{} clean", summary.clean)); }
 
-    // Uncommitted changes section
-    let uncommitted: Vec<_> = statuses
-        .iter()
-        .filter(|w| w.details.uncommitted_changes)
-        .collect();
-    if !uncommitted.is_empty() {
-        println!(
-            "Uncommitted Changes ({} workspace{}):",
-            uncommitted.len(),
-            if uncommitted.len() == 1 { "" } else { "s" }
-        );
-        for ws in &uncommitted {
-            let change_summary = if let Some(ref details) = ws.details.status_details {
-                let mut parts = Vec::new();
-                if !details.modified_files.is_empty() {
-                    parts.push(format!("M:{}", details.modified_files.len()));
-                }
-                if !details.untracked_files.is_empty() {
-                    parts.push(format!("?:{}", details.untracked_files.len()));
-                }
-                parts.join(" ")
-            } else {
-                String::new()
-            };
-            println!(
-                "  {}/{}  {}",
-                ws.workspace.repository, ws.workspace.name, change_summary
-            );
-        }
-        println!();
-    }
-
-    // Unpushed branches section
-    let unpushed: Vec<_> = statuses
-        .iter()
-        .filter(|w| w.details.unpushed_branch)
-        .collect();
-    if !unpushed.is_empty() {
-        println!(
-            "Unpushed Branches ({} workspace{}):",
-            unpushed.len(),
-            if unpushed.len() == 1 { "" } else { "s" }
-        );
-        for ws in &unpushed {
-            let branch = ws.details.branch_name.as_deref().unwrap_or("(unknown)");
-            println!(
-                "  {}/{}  Branch '{}' not on remote",
-                ws.workspace.repository, ws.workspace.name, branch
-            );
-        }
-        println!();
-    }
-
-    // Merged branches section
-    let merged: Vec<_> = statuses
-        .iter()
-        .filter(|w| w.details.merged_branch)
-        .collect();
-    if !merged.is_empty() {
-        println!(
-            "Merged Branches ({} workspace{}):",
-            merged.len(),
-            if merged.len() == 1 { "" } else { "s" }
-        );
-        for ws in &merged {
-            let branch = ws.details.branch_name.as_deref().unwrap_or("(unknown)");
-            let default = ws.details.default_branch.as_deref().unwrap_or("main");
-            println!(
-                "  {}/{}  Branch '{}' merged to '{}'",
-                ws.workspace.repository, ws.workspace.name, branch, default
-            );
-        }
-        println!();
-    }
-
-    // Clean workspaces section
-    let clean: Vec<_> = statuses
-        .iter()
-        .filter(|w| {
-            !w.details.uncommitted_changes && !w.details.unpushed_branch && !w.details.merged_branch
-        })
-        .collect();
-    if !clean.is_empty() {
-        println!(
-            "Clean Workspaces ({} workspace{}):",
-            clean.len(),
-            if clean.len() == 1 { "" } else { "s" }
-        );
-        for ws in &clean {
-            println!("  {}/{}", ws.workspace.repository, ws.workspace.name);
-        }
-        println!();
-    }
-
-    // Summary
+    let detail = if parts.is_empty() { String::new() } else { format!(" — {}", parts.join(", ")) };
     println!(
-        "Summary: {} total, {} uncommitted, {} unpushed, {} merged, {} clean",
-        summary.total, summary.uncommitted, summary.unpushed, summary.merged, summary.clean
+        "Summary: {} repo{}, {} workspace{}{}",
+        repos.len(),
+        if repos.len() == 1 { "" } else { "s" },
+        ws_count,
+        if ws_count == 1 { "" } else { "s" },
+        detail,
     );
     println!();
 
     Ok(())
 }
 
-fn print_status_json(statuses: &[WorkspaceWithStatus], summary: &StatusSummary) -> Result<()> {
+fn print_status_json(
+    statuses: &[WorkspaceWithStatus],
+    summary: &StatusSummary,
+    repos: &[werx::RepoInfo],
+    werx: &Werx,
+) -> Result<()> {
     #[derive(serde::Serialize)]
     struct JsonOutput {
+        repositories: Vec<RepoStatusJson>,
         workspaces: Vec<WorkspaceStatusJson>,
         summary: StatusSummary,
+    }
+
+    #[derive(serde::Serialize)]
+    struct RepoStatusJson {
+        name: String,
+        is_fork: bool,
+        upstream: Option<String>,
     }
 
     #[derive(serde::Serialize)]
@@ -1242,6 +1104,21 @@ fn print_status_json(statuses: &[WorkspaceWithStatus], summary: &StatusSummary) 
         untracked_files: Vec<String>,
     }
 
+    let repositories: Vec<RepoStatusJson> = repos.iter().map(|repo| {
+        let repo_path = werx.repos_dir().join(&repo.dir_name);
+        let (is_fork, upstream) = match RepoGithubMeta::load(&repo_path) {
+            Ok(Some(meta)) if meta.is_fork => {
+                let up = match (meta.upstream_owner.as_deref(), meta.upstream_repo.as_deref()) {
+                    (Some(o), Some(r)) => Some(format!("{}/{}", o, r)),
+                    _ => None,
+                };
+                (true, up)
+            }
+            _ => (false, None),
+        };
+        RepoStatusJson { name: repo.dir_name.clone(), is_fork, upstream }
+    }).collect();
+
     let workspaces: Vec<WorkspaceStatusJson> = statuses
         .iter()
         .map(|ws| WorkspaceStatusJson {
@@ -1252,18 +1129,15 @@ fn print_status_json(statuses: &[WorkspaceWithStatus], summary: &StatusSummary) 
             uncommitted_changes: ws.details.uncommitted_changes,
             unpushed_branch: ws.details.unpushed_branch,
             merged_branch: ws.details.merged_branch,
-            status_details: ws
-                .details
-                .status_details
-                .as_ref()
-                .map(|d| StatusDetailsJson {
-                    modified_files: d.modified_files.clone(),
-                    untracked_files: d.untracked_files.clone(),
-                }),
+            status_details: ws.details.status_details.as_ref().map(|d| StatusDetailsJson {
+                modified_files: d.modified_files.clone(),
+                untracked_files: d.untracked_files.clone(),
+            }),
         })
         .collect();
 
     let output = JsonOutput {
+        repositories,
         workspaces,
         summary: StatusSummary {
             total: summary.total,
@@ -1506,4 +1380,362 @@ fn print_check_json(
 fn cmd_sync(repospec: Option<String>, dry_run: bool, no_confirm: bool, ctx: &AppContext) -> Result<()> {
     let werx = find_werx()?;
     run_sync(&werx, repospec.as_deref(), dry_run, no_confirm, ctx)
+}
+
+// ── werx config ───────────────────────────────────────────────────────────────
+
+fn cmd_config(subcmd: ConfigCommands) -> Result<()> {
+    let werx = find_werx()?;
+    let config_path = werx.config_file();
+    match subcmd {
+        ConfigCommands::List => {
+            let config = werx.load_config()?;
+            let toml = toml::to_string_pretty(&config).context("Failed to serialize config")?;
+            print!("{}", toml);
+        }
+        ConfigCommands::Get { key } => {
+            match config_get_value(&config_path, &key)? {
+                Some(val) => println!("{}", val),
+                None => {
+                    eprintln!("Key '{}' not found in config", key);
+                    std::process::exit(1);
+                }
+            }
+        }
+        ConfigCommands::Set { key, value } => {
+            config_set_value(&config_path, &key, &value)?;
+            println!("Set {} = {}", key, value);
+        }
+        ConfigCommands::Delete { key } => {
+            let existed = config_delete_value(&config_path, &key)?;
+            if existed {
+                println!("Deleted key '{}'", key);
+            } else {
+                eprintln!("Key '{}' not found in config", key);
+                std::process::exit(1);
+            }
+        }
+    }
+    Ok(())
+}
+
+// ── werx go (extended with #N lookup) ────────────────────────────────────────
+
+/// Parse a query string that may look like "#123" or "123" into a u64 issue/PR number.
+fn parse_issue_number(query: &str) -> Option<u64> {
+    let s = query.strip_prefix('#').unwrap_or(query);
+    s.parse::<u64>().ok()
+}
+
+/// Find workspaces whose branch matches the pattern `[^/]+/{N}-.*` for the given issue number.
+fn find_workspaces_for_number(werx: &Werx, number: u64) -> Result<Vec<werx::Workspace>> {
+    let workspaces = list_workspaces(werx)?;
+    let prefix = format!("{}-", number);
+    let mut matches: Vec<werx::Workspace> = workspaces
+        .into_iter()
+        .filter(|ws| {
+            if let Some(ref branch) = ws.branch {
+                // branch format: "user/N-slug" — check after the '/'
+                if let Some(after_slash) = branch.splitn(2, '/').nth(1) {
+                    return after_slash.starts_with(&prefix);
+                }
+            }
+            false
+        })
+        .collect();
+    matches.sort_by(|a, b| {
+        let ra = format!("{}/{}", a.repository, a.name);
+        let rb = format!("{}/{}", b.repository, b.name);
+        ra.cmp(&rb)
+    });
+    Ok(matches)
+}
+
+// ── core workspace creation helper (returns PathBuf) ─────────────────────────
+
+/// Core workspace creation logic extracted so both `cmd_workspace_create_from_issue_pr`
+/// and `cmd_on` can call it. Returns the created workspace path.
+fn create_workspace_for_issue_pr(
+    werx: &Werx,
+    repo_info: werx::RepoInfo,
+    number: u64,
+    workspace_name_override: Option<String>,
+) -> Result<std::path::PathBuf> {
+    if !github::is_gh_available() {
+        return Err(anyhow::anyhow!(
+            "The `gh` CLI is required for GitHub issue/PR resolution but was not found in PATH.\n\
+             Install it from https://cli.github.com/"
+        ));
+    }
+
+    let repo_path = werx.repos_dir().join(&repo_info.dir_name);
+    let repo_meta = RepoGithubMeta::load(&repo_path)?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "No GitHub metadata found for repository '{}'.\n\
+                 Run `werx repo add` again (or re-clone) to populate fork metadata.",
+                repo_info.dir_name
+            )
+        })?;
+
+    let owner = &repo_meta.owner;
+    let repo_name = &repo_meta.repo;
+    let default_branch = &repo_meta.default_branch;
+
+    // Try PR first
+    match github::fetch_pr(owner, repo_name, number) {
+        Ok(pr) => {
+            let branch = &pr.head_ref_name;
+
+            let worktrees = list_worktree_branches(&repo_path)?;
+            if let Some((_, path)) = worktrees.iter().find(|(b, _)| b == branch) {
+                println!();
+                println!("Workspace already exists for branch '{}':", branch);
+                println!("  {}", path.display());
+                return Ok(path.clone());
+            }
+
+            let workspace_name = workspace_name_override
+                .unwrap_or_else(|| branch.replace('/', "-"));
+
+            println!();
+            println!("Creating workspace for PR #{} (branch: {})...", number, branch);
+
+            let workspace_path = create_worktree(werx, &repo_info, &workspace_name, branch)?;
+
+            println!();
+            println!("Workspace created successfully!");
+            println!("  PR:         #{}", number);
+            println!("  Branch:     {}", branch);
+            println!("  Workspace:  {}/{}", repo_info.dir_name, workspace_name);
+            println!("  Path:       {}", workspace_path.display());
+
+            return Ok(workspace_path);
+        }
+        Err(e) => {
+            tracing::debug!("#{} is not a PR ({}), trying as issue", number, e);
+        }
+    }
+
+    // Try issue in fork repo and upstream if applicable.
+    let fork_issue = github::fetch_issue(owner, repo_name, number).ok();
+    let upstream_issue = if repo_meta.is_fork {
+        if let (Some(up_owner), Some(up_repo)) =
+            (repo_meta.upstream_owner.as_deref(), repo_meta.upstream_repo.as_deref())
+        {
+            github::fetch_issue(up_owner, up_repo, number).ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    #[derive(Clone)]
+    struct IssueContext {
+        issue: github::GhIssue,
+        label: String,
+    }
+
+    let issue_ctx: IssueContext = match (fork_issue, upstream_issue) {
+        (Some(fi), Some(ui)) => {
+            if std::io::stdin().is_terminal() {
+                let items = vec![
+                    format!("Fork ({}/{}): {}", owner, repo_name, fi.title),
+                    format!(
+                        "Upstream ({}/{}): {}",
+                        repo_meta.upstream_owner.as_deref().unwrap_or("?"),
+                        repo_meta.upstream_repo.as_deref().unwrap_or("?"),
+                        ui.title
+                    ),
+                ];
+                println!();
+                println!("Issue #{} exists in both the fork and upstream repo. Which one?", number);
+                let idx = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                    .items(&items)
+                    .default(0)
+                    .interact()
+                    .map_err(|e| anyhow::anyhow!("Selection cancelled: {}", e))?;
+                if idx == 0 {
+                    IssueContext { issue: fi, label: format!("{}/{}", owner, repo_name) }
+                } else {
+                    IssueContext {
+                        issue: ui,
+                        label: format!(
+                            "{}/{}",
+                            repo_meta.upstream_owner.as_deref().unwrap_or("?"),
+                            repo_meta.upstream_repo.as_deref().unwrap_or("?")
+                        ),
+                    }
+                }
+            } else {
+                return Err(anyhow::anyhow!(
+                    "#{} exists in both the fork ({}/{}) and upstream ({}/{}). \
+                     Cannot auto-select in non-interactive mode.",
+                    number, owner, repo_name,
+                    repo_meta.upstream_owner.as_deref().unwrap_or("?"),
+                    repo_meta.upstream_repo.as_deref().unwrap_or("?")
+                ));
+            }
+        }
+        (Some(fi), None) => IssueContext { issue: fi, label: format!("{}/{}", owner, repo_name) },
+        (None, Some(ui)) => IssueContext {
+            issue: ui,
+            label: format!(
+                "{}/{}",
+                repo_meta.upstream_owner.as_deref().unwrap_or("?"),
+                repo_meta.upstream_repo.as_deref().unwrap_or("?")
+            ),
+        },
+        (None, None) => {
+            return Err(anyhow::anyhow!(
+                "#{} is neither a PR nor an issue in {}/{} (or its upstream)",
+                number, owner, repo_name,
+            ));
+        }
+    };
+
+    let issue = issue_ctx.issue;
+    let issue_source = issue_ctx.label;
+
+    let mut config = werx.load_config()?;
+    let username = branch_naming::resolve_username(werx, &mut config)?;
+    let default_slug = branch_naming::generate_slug(werx, &config, &issue.title, &issue.body);
+
+    // Strip any leading issue-number prefix from the slug to avoid duplication
+    let default_slug = branch_naming::strip_issue_prefix(&default_slug, number).to_string();
+    let default_slug = if default_slug.is_empty() {
+        branch_naming::slugify(&issue.title)
+    } else {
+        default_slug
+    };
+
+    let topic_slug = if std::io::stdin().is_terminal() {
+        let slug: String =
+            dialoguer::Input::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                .with_prompt("Branch slug")
+                .default(default_slug)
+                .interact_text()
+                .map_err(|e| anyhow::anyhow!("Failed to prompt for branch slug: {}", e))?;
+        slug.trim().to_string()
+    } else {
+        default_slug
+    };
+
+    let branch = branch_naming::make_branch_name(&username, Some(number), &topic_slug);
+
+    let worktrees = list_worktree_branches(&repo_path)?;
+    if let Some((_, path)) = worktrees.iter().find(|(b, _)| b == &branch) {
+        println!();
+        println!("Workspace already exists for branch '{}':", branch);
+        println!("  {}", path.display());
+        return Ok(path.clone());
+    }
+
+    create_branch_if_absent(&repo_path, &branch, default_branch)?;
+
+    let workspace_name = workspace_name_override.unwrap_or_else(|| {
+        branch
+            .find('/')
+            .map(|i| branch[i + 1..].to_string())
+            .unwrap_or_else(|| branch.clone())
+    });
+
+    println!();
+    println!(
+        "Creating workspace for issue #{} (branch: {})...",
+        number, branch
+    );
+
+    let workspace_path = create_worktree(werx, &repo_info, &workspace_name, &branch)?;
+
+    println!();
+    println!("Workspace created successfully!");
+    println!("  Issue:      #{} — {} ({})", number, issue.title, issue_source);
+    println!("  Branch:     {}", branch);
+    println!("  Workspace:  {}/{}", repo_info.dir_name, workspace_name);
+    println!("  Path:       {}", workspace_path.display());
+
+    Ok(workspace_path)
+}
+
+// ── werx on ──────────────────────────────────────────────────────────────────
+
+fn cmd_on(repo_or_number: Option<String>, number: Option<String>) -> Result<()> {
+    // Parse arguments: `werx on #N` or `werx on REPO #N`
+    let (repo_spec, issue_number): (Option<String>, u64) = match (repo_or_number, number) {
+        // werx on REPO #N  (or  werx on REPO N)
+        (Some(r), Some(n)) => {
+            let num = parse_issue_number(&n).ok_or_else(|| {
+                anyhow::anyhow!("'{}' is not a valid issue/PR number", n)
+            })?;
+            (Some(r), num)
+        }
+        // werx on #N  (repo_or_number starts with '#' or is a bare integer)
+        (Some(r), None) => {
+            if let Some(num) = parse_issue_number(&r) {
+                (None, num)
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Expected an issue/PR number (e.g. '#1234') but got '{}'\n\
+                     Usage: werx on [REPO] #N",
+                    r
+                ));
+            }
+        }
+        (None, _) => {
+            return Err(anyhow::anyhow!(
+                "Usage: werx on [REPO] #N\n\
+                 Example: werx on #1234"
+            ));
+        }
+    };
+
+    let werx = find_werx()?;
+
+    // Resolve target repository
+    let repo_info = if let Some(spec) = repo_spec {
+        find_repository(&werx, &spec)?
+    } else {
+        let current_dir = std::env::current_dir()?;
+        if let Some(repo) = detect_current_workspace(&current_dir, &werx)? {
+            repo
+        } else {
+            select_repository(&werx)?
+        }
+    };
+
+    // Check for an existing workspace for this issue number in the target repo
+    let all_matches = find_workspaces_for_number(&werx, issue_number)?;
+    let repo_matches: Vec<_> = all_matches
+        .into_iter()
+        .filter(|ws| ws.repository == repo_info.dir_name)
+        .collect();
+
+    if !repo_matches.is_empty() {
+        let workspace = if repo_matches.len() == 1 {
+            repo_matches.into_iter().next().unwrap()
+        } else {
+            // Multiple matches — interactive selection
+            match select_workspace_with_query(repo_matches, Some(format!("#{}", issue_number)))? {
+                Some(ws) => ws,
+                None => return Ok(()),
+            }
+        };
+        if let Err(e) = emit_change_directory(&workspace.path) {
+            tracing::warn!("emit_change_directory failed: {}", e);
+        }
+        return Ok(());
+    }
+
+    // No existing workspace — create one
+    let workspace_path = create_workspace_for_issue_pr(&werx, repo_info, issue_number, None)?;
+    println!();
+    println!("Next steps:");
+    println!("  cd {}", workspace_path.display());
+    println!();
+    if let Err(e) = emit_change_directory(&workspace_path) {
+        tracing::warn!("emit_change_directory failed: {}", e);
+    }
+    Ok(())
 }

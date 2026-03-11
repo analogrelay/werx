@@ -30,6 +30,22 @@ pub fn slugify(text: &str) -> String {
 
 // ── Branch naming ─────────────────────────────────────────────────────────────
 
+/// Strip a leading `{number}-` or `{number}` prefix from a slug to prevent duplication.
+/// E.g. strip_issue_prefix("12345-fix-login", 12345) -> "fix-login"
+pub fn strip_issue_prefix<'a>(slug: &'a str, number: u64) -> &'a str {
+    let prefix_with_dash = format!("{}-", number);
+    let prefix_bare = format!("{}", number);
+    if let Some(rest) = slug.strip_prefix(prefix_with_dash.as_str()) {
+        if !rest.is_empty() { return rest; }
+    }
+    if let Some(rest) = slug.strip_prefix(prefix_bare.as_str()) {
+        if rest.is_empty() || rest.starts_with('-') {
+            return rest.trim_start_matches('-');
+        }
+    }
+    slug
+}
+
 /// Build a branch name following the `username/[N-]topic` pattern.
 pub fn make_branch_name(username: &str, issue_num: Option<u64>, topic: &str) -> String {
     match issue_num {
@@ -235,6 +251,30 @@ mod tests {
     #[test]
     fn test_slugify_empty_string() {
         assert_eq!(slugify(""), "");
+    }
+
+    // ── strip_issue_prefix ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_strip_issue_prefix_with_dash() {
+        assert_eq!(strip_issue_prefix("12345-fix-login", 12345), "fix-login");
+    }
+
+    #[test]
+    fn test_strip_issue_prefix_bare_number_only() {
+        // "12345" with no suffix returns ""  — caller should fall back to title slug
+        assert_eq!(strip_issue_prefix("12345", 12345), "");
+    }
+
+    #[test]
+    fn test_strip_issue_prefix_no_match() {
+        assert_eq!(strip_issue_prefix("fix-login-bug", 12345), "fix-login-bug");
+    }
+
+    #[test]
+    fn test_strip_issue_prefix_partial_number_no_strip() {
+        // "123-fix" should NOT be stripped for number 12345
+        assert_eq!(strip_issue_prefix("123-fix", 12345), "123-fix");
     }
 
     // ── make_branch_name ─────────────────────────────────────────────────────
